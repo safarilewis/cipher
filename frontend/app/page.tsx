@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AppHeader } from "@/components/AppHeader";
 
 const activityLevels = [
   0, 0, 0, 1, 1, 2, 2, 3, 4, 3, 2, 1, 1, 0, 1, 2, 3, 4, 3, 2, 1, 2, 3, 4, 4, 3,
@@ -18,6 +19,7 @@ function GitHubIcon({ size = 14 }: { size?: number }) {
 export default function HomePage() {
   return (
     <>
+      <AppHeader />
       <main className="hero">
         <div className="hero-badge">
           <div className="hero-badge-dot" />

@@ -26,6 +26,19 @@ export type ProfileSection = {
   order: number;
 };
 
+export type Repository = {
+  id: string;
+  full_name: string;
+  description: string | null;
+  language: string | null;
+  stars: number;
+  forks: number;
+  open_issues: number;
+  commit_count: number;
+  selected_for_analysis: boolean;
+  pushed_at: string | null;
+};
+
 export type Evaluation = {
   id: string;
   status: "queued" | "running" | "ready" | "failed";
@@ -45,15 +58,7 @@ export type Evaluation = {
 export type PublicProfile = {
   user: UserProfile;
   sections: ProfileSection[];
-  repositories: {
-    full_name: string;
-    description: string | null;
-    language: string | null;
-    stars: number;
-    forks: number;
-    open_issues: number;
-    pushed_at: string | null;
-  }[];
+  repositories: Repository[];
   leetcode: {
     username: string;
     total_solved: number;
@@ -65,4 +70,3 @@ export type PublicProfile = {
   } | null;
   evaluation: Evaluation | null;
 };
-

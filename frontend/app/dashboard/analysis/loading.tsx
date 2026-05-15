@@ -2,9 +2,8 @@ import { LoadingTips } from "@/components/LoadingTips";
 
 export default function AnalysisLoading() {
   return (
-    <main className="page loader-page">
+    <div className="loader-page">
       <LoadingTips label="Preparing analysis" />
-    </main>
+    </div>
   );
 }
-

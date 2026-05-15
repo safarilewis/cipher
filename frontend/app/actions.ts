@@ -66,6 +66,15 @@ export async function deleteSource(formData: FormData) {
   redirect("/dashboard/sources");
 }
 
+export async function saveRepositorySelection(formData: FormData) {
+  const repositoryIds = formData.getAll("repositoryIds").map(String);
+  await backendFetch("/sources/github/repositories/selection", {
+    method: "POST",
+    body: JSON.stringify({ repository_ids: repositoryIds })
+  });
+  redirect("/dashboard/sources");
+}
+
 export async function createAnalysis() {
   await backendFetch("/analysis", { method: "POST" });
   redirect("/dashboard/analysis");
@@ -86,4 +95,3 @@ export async function unpublishProfile() {
   await backendFetch("/analysis/unpublish", { method: "POST" });
   redirect("/dashboard");
 }
-

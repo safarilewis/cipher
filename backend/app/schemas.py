@@ -63,15 +63,22 @@ class SourceOut(BaseModel):
 
 
 class RepositoryOut(BaseModel):
+    id: str
     full_name: str
     description: str | None
     language: str | None
     stars: int
     forks: int
     open_issues: int
+    commit_count: int
+    selected_for_analysis: bool
     pushed_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class RepositorySelectionIn(BaseModel):
+    repository_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
 class LeetCodeSnapshotOut(BaseModel):
@@ -110,4 +117,3 @@ class PublicProfileOut(BaseModel):
     repositories: list[RepositoryOut]
     leetcode: LeetCodeSnapshotOut | None
     evaluation: EvaluationOut | None
-

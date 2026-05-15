@@ -6,11 +6,12 @@ import pytest
 
 
 class Repo:
-    def __init__(self, language="Python", stars=0, forks=0, pushed_at=True):
+    def __init__(self, language="Python", stars=0, forks=0, pushed_at=True, commit_count=0):
         self.language = language
         self.stars = stars
         self.forks = forks
         self.pushed_at = pushed_at
+        self.commit_count = commit_count
 
 
 class Section:
@@ -27,11 +28,12 @@ class Snapshot:
 
 
 def test_github_quality_signals_scores_project_complexity():
-    repos = [Repo("Python", 20), Repo("TypeScript", 0), Repo("Go", 0)]
+    repos = [Repo("Python", 20, commit_count=12), Repo("TypeScript", 0, commit_count=5), Repo("Go", 0)]
     signals = github_quality_signals(repos)
     assert signals["project_complexity"] == "solid"
     assert signals["language_count"] == 3
     assert signals["stars"] == 20
+    assert signals["commits"] == 17
 
 
 def test_leetcode_signals_handles_missing_snapshot():

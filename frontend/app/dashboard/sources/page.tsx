@@ -4,22 +4,28 @@ import { Trash2 } from "lucide-react";
 import { auth } from "@/auth";
 import { deleteSource } from "@/app/actions";
 import { backendFetch } from "@/lib/backend";
-import type { Source } from "@/lib/types";
+import type { Repository, Source } from "@/lib/types";
 import { PendingButton } from "@/components/PendingButton";
+import { RepositorySelectionForm } from "@/components/RepositorySelectionForm";
 
 export default async function SourcesPage() {
   const session = await auth();
   if (!session) redirect("/login");
 
-  const sources = await backendFetch<Source[]>("/sources");
+  const [sources, repositories] = await Promise.all([
+    backendFetch<Source[]>("/sources"),
+    backendFetch<Repository[]>("/sources/github/repositories")
+  ]);
+  const totalCommits = repositories.reduce((sum, repo) => sum + repo.commit_count, 0);
+  const selectedCount = repositories.filter((repo) => repo.selected_for_analysis).length;
 
   return (
-    <main className="page stack">
-      <section>
+    <>
+      <section className="dashboard-page-head">
         <h1>Sources</h1>
-        <p className="lead">Connected data is user-controlled. Free-tier source refreshes are available every 14 days.</p>
+        <p className="lead">Connected data is user-controlled. Choose up to five GitHub repos for code review.</p>
       </section>
-      <section className="grid">
+      <section className="dashboard-card-grid">
         {sources.map((source) => (
           <article className="card stack" key={source.kind}>
             <span className="status">{source.kind}</span>
@@ -43,6 +49,22 @@ export default async function SourcesPage() {
           </article>
         )}
       </section>
-    </main>
+
+      <section className="panel stack">
+        <div>
+          <span className="status">{selectedCount}/5 selected for code analysis</span>
+          <h2>Repository code review</h2>
+          <p className="muted">
+            adpt sends selected repos to the LLM with commit counts, README, repository structure, and a few key source files.
+            Total synced commits: {totalCommits}.
+          </p>
+        </div>
+        {repositories.length > 0 ? (
+          <RepositorySelectionForm repositories={repositories} />
+        ) : (
+          <p className="muted">Import GitHub first to choose repositories for code analysis.</p>
+        )}
+      </section>
+    </>
   );
 }

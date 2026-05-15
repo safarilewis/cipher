@@ -8,19 +8,17 @@ export default async function LeetcodeOnboardingPage() {
   if (!session) redirect("/login");
 
   return (
-    <main className="page">
-      <section className="panel stack">
-        <span className="status">Step 2 of 3</span>
-        <h1>Add LeetCode</h1>
-        <p className="lead">Enter your public username so adpt can snapshot your challenge progress.</p>
-        <form className="form" action={connectLeetcode}>
-          <label className="field">
-            <span>LeetCode username</span>
-            <input name="username" required />
-          </label>
-          <PendingButton pendingLabel="Importing LeetCode...">Import LeetCode stats</PendingButton>
-        </form>
-      </section>
-    </main>
+    <section className="panel stack">
+      <span className="status">Step 2 of 3</span>
+      <h1>Add LeetCode</h1>
+      <p className="lead">Enter your public username so adpt can snapshot your challenge progress.</p>
+      <form className="dashboard-profile-form" action={connectLeetcode}>
+        <label className="field">
+          <span>LeetCode username</span>
+          <input name="username" required />
+        </label>
+        <PendingButton pendingLabel="Importing LeetCode...">Import LeetCode stats</PendingButton>
+      </form>
+    </section>
   );
 }

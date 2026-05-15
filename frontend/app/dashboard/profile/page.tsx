@@ -3,15 +3,15 @@ import { auth } from "@/auth";
 import { saveProfileSection } from "@/app/actions";
 import { PendingButton } from "@/components/PendingButton";
 
-export default async function ProfileOnboardingPage() {
+export default async function DashboardProfilePage() {
   const session = await auth();
   if (!session) redirect("/login");
 
   return (
     <section className="panel stack">
-      <span className="status">Step 3 of 3</span>
+      <span className="status">Profile evidence</span>
       <h1>Add profile evidence</h1>
-      <p className="lead">Add one section now. You can add more from the dashboard.</p>
+      <p className="lead">Add education, employment, certifications, bootcamps, and projects that should inform your developer model.</p>
       <form className="dashboard-profile-form" action={saveProfileSection}>
         <label className="field">
           <span>Section type</span>
@@ -28,7 +28,7 @@ export default async function ProfileOnboardingPage() {
         <label className="field"><span>Description</span><textarea name="description" /></label>
         <label className="field"><span>URL</span><input name="url" /></label>
         <input name="order" type="hidden" value="0" />
-        <PendingButton pendingLabel="Saving evidence...">Save and open dashboard</PendingButton>
+        <PendingButton pendingLabel="Saving evidence...">Save evidence</PendingButton>
       </form>
     </section>
   );

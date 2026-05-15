@@ -25,7 +25,7 @@ export default async function AnalysisPage() {
   const evaluation = await backendFetch<Evaluation | null>("/analysis/latest");
 
   return (
-    <main className="page stack">
+    <>
       <section className="panel stack">
         <h1>Analysis</h1>
         <p className="lead">Generate evidence-backed profile copy, then review it before anything can be published.</p>
@@ -62,6 +62,6 @@ export default async function AnalysisPage() {
           )}
         </section>
       )}
-    </main>
+    </>
   );
 }

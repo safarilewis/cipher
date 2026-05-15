@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_user
 from app.db import get_db
-from app.models import ConnectedAccount, LeetCodeSnapshot, SourceKind, User
-from app.schemas import GitHubConnectIn, LeetCodeConnectIn, SourceOut
+from app.models import ConnectedAccount, GitHubRepository, LeetCodeSnapshot, SourceKind, User
+from app.schemas import GitHubConnectIn, LeetCodeConnectIn, RepositoryOut, RepositorySelectionIn, SourceOut
 from app.services.github import delete_github_source, sync_github
 from app.services.leetcode import delete_leetcode_source, sync_leetcode
 from app.services.refresh_policy import assert_free_tier_refresh_allowed, free_tier_refresh_days, next_free_tier_refresh_at
@@ -37,6 +37,34 @@ def list_sources(db: Session = Depends(get_db), user: User = Depends(require_use
             )
         )
     return output
+
+
+@router.get("/github/repositories", response_model=list[RepositoryOut])
+def list_github_repositories(db: Session = Depends(get_db), user: User = Depends(require_user)) -> list[GitHubRepository]:
+    return (
+        db.query(GitHubRepository)
+        .filter(GitHubRepository.user_id == user.id)
+        .order_by(GitHubRepository.selected_for_analysis.desc(), GitHubRepository.stars.desc(), GitHubRepository.pushed_at.desc())
+        .all()
+    )
+
+
+@router.post("/github/repositories/selection", response_model=list[RepositoryOut])
+def select_github_repositories(
+    payload: RepositorySelectionIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> list[GitHubRepository]:
+    repository_ids = set(payload.repository_ids[:5])
+    repos = db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
+    owned_ids = {repo.id for repo in repos}
+    invalid = repository_ids - owned_ids
+    if invalid:
+        raise HTTPException(status_code=404, detail="One or more repositories were not found")
+    for repo in repos:
+        repo.selected_for_analysis = repo.id in repository_ids
+    db.commit()
+    return list_github_repositories(db, user)
 
 
 @router.post("/github", response_model=SourceOut)
