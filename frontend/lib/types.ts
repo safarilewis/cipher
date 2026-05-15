@@ -11,6 +11,7 @@ export type UserProfile = {
   name: string | null;
   slug: string;
   headline: string | null;
+  career_stage_override?: "student" | "new_grad" | "early" | "mid" | "senior" | null;
   published: boolean;
 };
 
@@ -44,6 +45,10 @@ export type Evaluation = {
   status: "queued" | "running" | "ready" | "failed";
   summary: string | null;
   skill_model: Record<string, unknown> | null;
+  skill_model_v2?: Record<string, unknown> | null;
+  career_stage?: Record<string, unknown> | null;
+  signal_completeness?: Record<string, unknown> | null;
+  repository_evaluations?: unknown[] | null;
   strengths: string[] | null;
   growth_areas: string[] | null;
   project_complexity_notes: string[] | null;

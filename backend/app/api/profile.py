@@ -23,6 +23,8 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: 
         user.headline = payload.headline
     if payload.slug is not None:
         user.slug = payload.slug
+    if "career_stage_override" in payload.model_fields_set:
+        user.career_stage_override = payload.career_stage_override
     try:
         db.commit()
     except IntegrityError as exc:
@@ -70,4 +72,3 @@ def delete_section(section_id: str, db: Session = Depends(get_db), user: User = 
         raise HTTPException(status_code=404, detail="Section not found")
     db.delete(section)
     db.commit()
-

@@ -33,7 +33,12 @@ def init_db() -> None:
 
 def ensure_lightweight_migrations() -> None:
     inspector = inspect(engine)
-    if "github_repositories" not in inspector.get_table_names():
+    table_names = inspector.get_table_names()
+    if "users" in table_names:
+        migrate_users_table(inspector)
+    if "generated_evaluations" in table_names:
+        migrate_generated_evaluations_table(inspector)
+    if "github_repositories" not in table_names:
         return
 
     existing = {column["name"] for column in inspector.get_columns("github_repositories")}
@@ -56,3 +61,24 @@ def ensure_lightweight_migrations() -> None:
             connection.execute(text(statement))
         connection.execute(text("UPDATE github_repositories SET commit_count = 0 WHERE commit_count IS NULL"))
         connection.execute(text("UPDATE github_repositories SET selected_for_analysis = FALSE WHERE selected_for_analysis IS NULL"))
+
+
+def migrate_users_table(inspector) -> None:
+    existing = {column["name"] for column in inspector.get_columns("users")}
+    if "career_stage_override" in existing:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN career_stage_override VARCHAR(40)"))
+
+
+def migrate_generated_evaluations_table(inspector) -> None:
+    existing = {column["name"] for column in inspector.get_columns("generated_evaluations")}
+    statements = []
+    for column in ("skill_model_v2", "career_stage", "signal_completeness", "repository_evaluations"):
+        if column not in existing:
+            statements.append(f"ALTER TABLE generated_evaluations ADD COLUMN {column} JSON")
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))

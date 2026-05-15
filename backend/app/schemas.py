@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     name: str | None
     slug: str
     headline: str | None
+    career_stage_override: Literal["student", "new_grad", "early", "mid", "senior"] | None = None
     published: bool
 
     model_config = {"from_attributes": True}
@@ -27,6 +28,7 @@ class ProfileUpdate(BaseModel):
     name: str | None = None
     headline: str | None = None
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9-]{3,80}$")
+    career_stage_override: Literal["student", "new_grad", "early", "mid", "senior"] | None = None
 
 
 class SectionIn(BaseModel):
@@ -98,6 +100,10 @@ class EvaluationOut(BaseModel):
     status: AnalysisStatus
     summary: str | None
     skill_model: dict | None
+    skill_model_v2: dict | None = None
+    career_stage: dict | None = None
+    signal_completeness: dict | None = None
+    repository_evaluations: list | None = None
     strengths: list | None
     growth_areas: list | None
     project_complexity_notes: list | None
