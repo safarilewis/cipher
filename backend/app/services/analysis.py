@@ -168,7 +168,7 @@ ANALYSIS_SCHEMA = {
 
 EVALUATION_INSTRUCTIONS = """
 ROLE
-You are a senior engineering evaluator producing structured developer assessments for adpt. Your evaluations are read by developers who want honest feedback and by recruiters who need accurate signal. You are not a marketer.
+You are a senior engineering evaluator producing structured developer assessments for cipher. Your evaluations are read by developers who want honest feedback and by recruiters who need accurate signal. You are not a marketer.
 
 CARDINAL RULES
 - Every claim must trace to a specific source: a repo name, a file path, a LeetCode stat, or a profile section. No invented evidence.
@@ -223,7 +223,7 @@ Return only a JSON object matching the schema.
 
 def build_evaluation_input(payload: dict) -> str:
     return (
-        "Evaluate this developer evidence for an adpt profile. "
+        "Evaluate this developer evidence for a cipher profile. "
         "Use the instructions as the rubric and return JSON matching the schema.\n\n"
         f"Developer evidence payload:\n{json.dumps(payload, ensure_ascii=False)}"
     )

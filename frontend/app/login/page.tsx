@@ -8,7 +8,7 @@ export default function LoginPage() {
       <main className="page landing-spacer">
         <section className="panel stack">
           <h1>Log in</h1>
-          <p className="lead">Continue with GitHub to manage your adpt profile.</p>
+          <p className="lead">Continue with GitHub to manage your cipher profile.</p>
           <GitHubSignInButton>Continue with GitHub</GitHubSignInButton>
         </section>
       </main>

@@ -51,7 +51,7 @@ export async function DashboardShell({ children }: DashboardShellProps) {
         <div className="dashboard-topline">
           <div>
             <div className="sidebar-label">Live profile</div>
-            <div className="dashboard-url"><span>adpt.so</span>/{profile.slug}</div>
+            <div className="dashboard-url"><span>cipher.so</span>/{profile.slug}</div>
           </div>
           <div className="dashboard-topline-right">
             <span className="status">{profile.published ? <Eye size={14} /> : <EyeOff size={14} />} {profile.published ? "Published" : "Private"}</span>

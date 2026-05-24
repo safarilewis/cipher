@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: adpt-api
+    name: cipher-api
     runtime: python
     rootDir: backend
     buildCommand: pip install -e .
@@ -8,12 +8,12 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: adpt-postgres
+          name: cipher-postgres
           property: connectionString
       - key: REDIS_URL
         fromService:
           type: redis
-          name: adpt-redis
+          name: cipher-redis
           property: connectionString
       - key: AUTH_TRUST_DEV_HEADERS
         value: false
@@ -25,7 +25,7 @@ services:
         sync: false
 
 databases:
-  - name: adpt-postgres
-    databaseName: adpt
-    user: adpt
+  - name: cipher-postgres
+    databaseName: cipher
+    user: cipher
 

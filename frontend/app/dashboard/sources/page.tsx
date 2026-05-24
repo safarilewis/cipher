@@ -56,7 +56,7 @@ export default async function SourcesPage() {
           <span className="status">{selectedCount}/10 selected for code analysis</span>
           <h2>Repository code review</h2>
           <p className="muted">
-            adpt sends selected repos to the LLM with commit counts, README, repository structure, and a few key source files.
+            cipher sends selected repos to the LLM with commit counts, README, repository structure, and a few key source files.
             All-time synced commits: {allTimeCommitTotal}.
           </p>
         </div>

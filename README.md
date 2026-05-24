@@ -1,6 +1,6 @@
-# adpt
+# cipher
 
-adpt is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
+cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
 
 - GitHub repository evidence
 - LeetCode progress snapshots
@@ -69,7 +69,7 @@ Frontend runs at http://localhost:3000.
 - Node.js 20+
 # cipher
 - Optional: Docker (for local Postgres/Redis)
-adpt is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
+cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
 ### 1) Start infra
 
 ```bash
@@ -104,10 +104,10 @@ Open http://localhost:3000.
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://adpt:adpt@localhost:5432/adpt` |
+| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://cipher:cipher@localhost:5432/cipher` |
 | `REDIS_URL` | No | Redis connection string. |
 | `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
-| `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-adpt-user-*`) for local/manual testing. Set `false` outside local dev. |
+| `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
 | `OPENAI_API_KEY` | No | Enables OpenAI analysis generation. If missing, fallback deterministic analysis is used. |
 | `OPENAI_MODEL` | No | OpenAI model name. Default: `gpt-5.2`. |
 | `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for frontend. Default: `http://localhost:3000`. |
@@ -184,9 +184,9 @@ npm run test
 
 The repo includes `backend/render.yaml` for Render Blueprint-based setup:
 
-- Python web service (`adpt-api`)
-- Managed Postgres (`adpt-postgres`)
-- Managed Redis (`adpt-redis`)
+- Python web service (`cipher-api`)
+- Managed Postgres (`cipher-postgres`)
+- Managed Redis (`cipher-redis`)
 
 Set these securely in Render:
 

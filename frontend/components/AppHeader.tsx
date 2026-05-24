@@ -9,7 +9,7 @@ export async function AppHeader() {
   return (
     <header className="topbar">
       <Link className="brand" href="/">
-        <span className="brand-mark">a</span>
+        <span className="brand-mark">c</span>
         <span>cipher</span>
       </Link>
       <nav className="nav">

@@ -17,13 +17,13 @@ def slugify(value: str) -> str:
 
 def get_current_user(
     authorization: str | None = Header(default=None),
-    x_adpt_user_id: str | None = Header(default=None),
-    x_adpt_user_email: str | None = Header(default=None),
-    x_adpt_user_name: str | None = Header(default=None),
+    x_cipher_user_id: str | None = Header(default=None),
+    x_cipher_user_email: str | None = Header(default=None),
+    x_cipher_user_name: str | None = Header(default=None),
 ) -> CurrentUser:
     settings = get_settings()
-    if settings.auth_trust_dev_headers and x_adpt_user_id:
-        return CurrentUser(id=x_adpt_user_id, email=x_adpt_user_email, name=x_adpt_user_name)
+    if settings.auth_trust_dev_headers and x_cipher_user_id:
+        return CurrentUser(id=x_cipher_user_id, email=x_cipher_user_email, name=x_cipher_user_name)
 
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")

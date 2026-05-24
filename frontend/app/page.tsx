@@ -138,7 +138,7 @@ export default function HomePage() {
         <div className="signal-cards">
           <div className="signal-card"><div className="sc-eyebrow">Public - OAuth</div><h4>GitHub Activity</h4><p>Commit cadence, repo complexity, language distribution, open source contributions, PR quality, 12-month consistency signal.</p></div>
           <div className="signal-card"><div className="sc-eyebrow">Public - API</div><h4>LeetCode & Competitive</h4><p>Problems solved, difficulty distribution, acceptance rate, contest history. Measures how you think under constraint.</p></div>
-          <div className="signal-card"><div className="sc-eyebrow g">Private - Opt-in only</div><h4>VSCode Telemetry</h4><p>Real session behavior. Language time, refactor patterns, build cadence. The signal nobody else has access to - only available through adpt.</p></div>
+          <div className="signal-card"><div className="sc-eyebrow g">Private - Opt-in only</div><h4>VSCode Telemetry</h4><p>Real session behavior. Language time, refactor patterns, build cadence. The signal nobody else has access to - only available through cipher.</p></div>
           <div className="signal-card"><div className="sc-eyebrow">AI - GPT</div><h4>Auto-generated Narrative</h4><p>Your profile summary, written from your actual data. Specific, honest, current. No self-promotion required from you.</p></div>
         </div>
       </section>
@@ -151,12 +151,12 @@ export default function HomePage() {
         <table className="compare-table">
           <thead><tr><th></th><th className="d">Resume / LinkedIn</th><th className="g">cipher profile</th></tr></thead>
           <tbody>
-            <tr><td>Data source</td><td className="cross">Self-reported</td><td className="check adpt-col">Verified behavior</td></tr>
-            <tr><td>Update frequency</td><td className="cross">When you remember</td><td className="check adpt-col">Every 14 days on free tier</td></tr>
-            <tr><td>Can be fabricated</td><td className="cross">Trivially</td><td className="check adpt-col">No</td></tr>
-            <tr><td>Shows work patterns</td><td className="cross">Never</td><td className="check adpt-col">Always</td></tr>
-            <tr><td>Format</td><td className="cross">PDF attachment</td><td className="check adpt-col">Live URL</td></tr>
-            <tr><td>Narrative author</td><td className="cross">You (biased)</td><td className="check adpt-col">Data (objective)</td></tr>
+            <tr><td>Data source</td><td className="cross">Self-reported</td><td className="check cipher-col">Verified behavior</td></tr>
+            <tr><td>Update frequency</td><td className="cross">When you remember</td><td className="check cipher-col">Every 14 days on free tier</td></tr>
+            <tr><td>Can be fabricated</td><td className="cross">Trivially</td><td className="check cipher-col">No</td></tr>
+            <tr><td>Shows work patterns</td><td className="cross">Never</td><td className="check cipher-col">Always</td></tr>
+            <tr><td>Format</td><td className="cross">PDF attachment</td><td className="check cipher-col">Live URL</td></tr>
+            <tr><td>Narrative author</td><td className="cross">You (biased)</td><td className="check cipher-col">Data (objective)</td></tr>
           </tbody>
         </table>
       </section>
@@ -175,7 +175,7 @@ export default function HomePage() {
 
       <section className="cta-wrap reveal in">
         <div className="cta-inner">
-          <div className="cta-left"><h2>Your code is already<br />your resume.</h2><p>Stop writing about what you built. Let adpt show it. Free for developers.</p></div>
+          <div className="cta-left"><h2>Your code is already<br />your resume.</h2><p>Stop writing about what you built. Let cipher show it. Free for developers.</p></div>
           <div className="cta-right"><input className="cta-input" type="email" placeholder="your@email.com" /><Link href="/signup" className="btn-primary">Get early access -&gt;</Link></div>
         </div>
       </section>

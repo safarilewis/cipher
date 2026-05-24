@@ -920,7 +920,7 @@ button.danger {
 
 .check { color: var(--green); font-size: 13px; }
 .cross { color: var(--text-3); font-size: 13px; }
-.adpt-col { background: rgba(61, 214, 140, 0.03); }
+.cipher-col { background: rgba(61, 214, 140, 0.03); }
 
 .pricing-cards {
   display: grid;

@@ -1,2 +1,2 @@
-"""API routers for adpt."""
+"""API routers for cipher."""
 

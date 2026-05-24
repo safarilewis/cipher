@@ -11,7 +11,7 @@ export default async function LeetcodeOnboardingPage() {
     <section className="panel stack">
       <span className="status">Step 2 of 3</span>
       <h1>Add LeetCode</h1>
-      <p className="lead">Enter your public username so adpt can snapshot your challenge progress.</p>
+      <p className="lead">Enter your public username so cipher can snapshot your challenge progress.</p>
       <form className="dashboard-profile-form" action={connectLeetcode}>
         <label className="field">
           <span>LeetCode username</span>
