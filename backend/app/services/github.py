@@ -8,6 +8,7 @@ from app.models import ConnectedAccount, GitHubRepository, SourceKind, User
 
 
 GITHUB_API = "https://api.github.com"
+COMMIT_PAGE_SIZE = 100
 MAX_CODE_FILE_CHARS = 6000
 MAX_TREE_PATHS = 100
 KEY_FILE_NAMES = {
@@ -54,28 +55,66 @@ def github_headers(access_token: str | None = None) -> dict[str, str]:
     return headers
 
 
-async def fetch_commit_count(client: httpx.AsyncClient, full_name: str, access_token: str | None = None) -> int:
-    response = await client.get(
-        f"{GITHUB_API}/repos/{full_name}/commits",
-        params={"per_page": 1},
-        headers=github_headers(access_token),
-    )
-    if response.status_code in {204, 409, 422}:
-        return 0
-    response.raise_for_status()
-    link = response.headers.get("link", "")
-    for part in link.split(","):
-        if 'rel="last"' in part:
-            marker = "page="
-            if marker in part:
-                return int(part.split(marker, 1)[1].split(">", 1)[0].split("&", 1)[0])
-    return len(response.json())
+async def fetch_commit_count(
+    client: httpx.AsyncClient,
+    full_name: str,
+    access_token: str | None = None,
+    author: str | None = None,
+) -> int:
+    total = 0
+    page = 1
+    while True:
+        params: dict[str, str | int] = {
+            "per_page": COMMIT_PAGE_SIZE,
+            "page": page,
+        }
+        if author:
+            params["author"] = author
+        response = await client.get(
+            f"{GITHUB_API}/repos/{full_name}/commits",
+            params=params,
+            headers=github_headers(access_token),
+        )
+        if response.status_code in {204, 409, 422}:
+            return total
+        response.raise_for_status()
+        commits = response.json()
+        total += len(commits)
+        if len(commits) < COMMIT_PAGE_SIZE:
+            return total
+        page += 1
 
 
-async def fetch_commit_counts(repos: list[dict], access_token: str | None = None) -> dict[str, int]:
+async def fetch_all_time_commit_count(
+    client: httpx.AsyncClient,
+    full_name: str,
+    access_token: str | None = None,
+    author: str | None = None,
+) -> int:
+    return await fetch_commit_count(client, full_name, access_token, author)
+
+
+async def fetch_commit_counts(
+    repos: list[dict],
+    access_token: str | None = None,
+    author: str | None = None,
+) -> dict[str, int]:
     async with httpx.AsyncClient(timeout=20) as client:
         results = await asyncio_gather_limited(
-            [lambda repo=repo: fetch_commit_count(client, repo["full_name"], access_token) for repo in repos],
+            [lambda repo=repo: fetch_commit_count(client, repo["full_name"], access_token, author) for repo in repos],
+            limit=6,
+        )
+    return {repo["full_name"]: count for repo, count in zip(repos, results, strict=False)}
+
+
+async def fetch_all_time_commit_counts(
+    repos: list[dict],
+    access_token: str | None = None,
+    author: str | None = None,
+) -> dict[str, int]:
+    async with httpx.AsyncClient(timeout=20) as client:
+        results = await asyncio_gather_limited(
+            [lambda repo=repo: fetch_all_time_commit_count(client, repo["full_name"], access_token, author) for repo in repos],
             limit=6,
         )
     return {repo["full_name"]: count for repo, count in zip(repos, results, strict=False)}
@@ -98,7 +137,8 @@ async def asyncio_gather_limited(tasks, limit: int) -> list:
 
 async def sync_github(db: Session, user: User, username: str, access_token: str | None = None) -> ConnectedAccount:
     repos = await fetch_github_repositories(username, access_token)
-    commit_counts = await fetch_commit_counts(repos, access_token)
+    commit_counts = await fetch_commit_counts(repos, access_token, author=username)
+    all_time_commit_counts = await fetch_all_time_commit_counts(repos, access_token, author=username)
     account = (
         db.query(ConnectedAccount)
         .filter(ConnectedAccount.user_id == user.id, ConnectedAccount.kind == SourceKind.github)
@@ -113,6 +153,7 @@ async def sync_github(db: Session, user: User, username: str, access_token: str 
     account.raw_snapshot = {
         "repository_count": len(repos),
         "total_commit_count": sum(commit_counts.values()),
+        "all_time_commit_count": sum(all_time_commit_counts.values()),
         "synced_from": "github",
     }
     account.last_synced_at = datetime.utcnow()
@@ -133,6 +174,7 @@ async def sync_github(db: Session, user: User, username: str, access_token: str 
         record.forks = repo.get("forks_count") or 0
         record.open_issues = repo.get("open_issues_count") or 0
         record.commit_count = commit_counts.get(full_name, 0)
+        record.all_time_commit_count = all_time_commit_counts.get(full_name, 0)
         record.pushed_at = parse_github_datetime(repo.get("pushed_at"))
         record.raw = repo
 

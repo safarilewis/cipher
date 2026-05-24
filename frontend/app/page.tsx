@@ -29,7 +29,7 @@ export default function HomePage() {
         <h1>Your code is your resume.<br /><span className="dim">Stop writing about it.</span></h1>
 
         <p className="hero-sub">
-          Connect GitHub. adpt reads your actual behavior and builds a verified developer identity.
+          Connect GitHub. cipher reads your actual behavior and builds a verified developer identity.
           One link. Always live. Zero manual work.
         </p>
 
@@ -42,7 +42,7 @@ export default function HomePage() {
           <div className="ui-window">
             <div className="ui-titlebar">
               <div className="ui-dots"><div className="ui-dot" /><div className="ui-dot" /><div className="ui-dot" /></div>
-              <div className="ui-url"><GitHubIcon size={10} /><span className="url-green">adpt.so</span>/safs-k</div>
+              <div className="ui-url"><GitHubIcon size={10} /><span className="url-green">cipher.so</span>/safs-k</div>
               <div className="ui-sync-note">last synced 2m ago</div>
             </div>
 
@@ -74,7 +74,7 @@ export default function HomePage() {
                 <div className="profile-header">
                   <div className="profile-identity">
                     <div className="profile-avatar">SK</div>
-                    <div><div className="profile-name">Safs K.</div><div className="profile-handle">adpt.so/safs-k</div></div>
+                    <div><div className="profile-name">Safs K.</div><div className="profile-handle">cipher.so/safs-k</div></div>
                   </div>
                   <div className="profile-badges"><div className="badge badge-green">Verified</div><div className="badge badge-dim">Open to work</div></div>
                 </div>
@@ -88,7 +88,7 @@ export default function HomePage() {
                   <div className="metric"><div className="metric-val g">847</div><div className="metric-key">Commits / 12mo</div></div>
                   <div className="metric"><div className="metric-val">94.2%</div><div className="metric-key">LC accept rate</div></div>
                   <div className="metric"><div className="metric-val">312</div><div className="metric-key">Problems solved</div></div>
-                  <div className="metric"><div className="metric-val g">94</div><div className="metric-key">adpt score</div></div>
+                  <div className="metric"><div className="metric-val g">94</div><div className="metric-key">cipher score</div></div>
                 </div>
 
                 <div className="activity-label">Contribution activity</div>
@@ -122,11 +122,11 @@ export default function HomePage() {
       <section className="section reveal in" id="how">
         <div className="section-eyebrow">How it works</div>
         <h2>From code to credential<br /><span className="dim">in 60 seconds.</span></h2>
-        <p className="section-desc">Connect your accounts. adpt handles everything else. Free-tier profiles refresh every 14 days.</p>
+        <p className="section-desc">Connect your accounts. cipher handles everything else. Free-tier profiles refresh every 14 days.</p>
         <div className="steps">
           <div className="step"><div className="step-num">01 - Connect</div><h3>Link GitHub & LeetCode</h3><p>OAuth in one click. Optionally install the VSCode extension for private session telemetry - the signal layer no other platform can access.</p></div>
-          <div className="step"><div className="step-num">02 - Analyze</div><h3>adpt reads your behavior</h3><p>Commit cadence, language distribution, problem-solving depth, coding patterns. GPT writes your narrative from the data. You type nothing.</p></div>
-          <div className="step"><div className="step-num">03 - Share</div><h3>One link, forever</h3><p>adpt.so/you - always live, always current. Send it instead of a resume. Free profiles refresh automatically every 14 days.</p></div>
+          <div className="step"><div className="step-num">02 - Analyze</div><h3>cipher reads your behavior</h3><p>Commit cadence, language distribution, problem-solving depth, coding patterns. GPT writes your narrative from the data. You type nothing.</p></div>
+          <div className="step"><div className="step-num">03 - Share</div><h3>One link, forever</h3><p>cipher.so/you - always live, always current. Send it instead of a resume. Free profiles refresh automatically every 14 days.</p></div>
         </div>
       </section>
 
@@ -147,9 +147,9 @@ export default function HomePage() {
       <section className="section reveal in">
         <div className="section-eyebrow">Comparison</div>
         <h2>The resume hasn't changed<br /><span className="dim">since 1482.</span></h2>
-        <p className="section-desc">Self-reported, manually updated, trivially gamed. adpt replaces the format entirely.</p>
+        <p className="section-desc">Self-reported, manually updated, trivially gamed. cipher replaces the format entirely.</p>
         <table className="compare-table">
-          <thead><tr><th></th><th className="d">Resume / LinkedIn</th><th className="g">adpt profile</th></tr></thead>
+          <thead><tr><th></th><th className="d">Resume / LinkedIn</th><th className="g">cipher profile</th></tr></thead>
           <tbody>
             <tr><td>Data source</td><td className="cross">Self-reported</td><td className="check adpt-col">Verified behavior</td></tr>
             <tr><td>Update frequency</td><td className="cross">When you remember</td><td className="check adpt-col">Every 14 days on free tier</td></tr>
@@ -181,7 +181,7 @@ export default function HomePage() {
       </section>
 
       <footer>
-        <div className="footer-left"><div className="footer-logo">adpt</div><div className="footer-copy">© 2026 adpt - tryadpt.com</div></div>
+        <div className="footer-left"><div className="footer-logo">cipher</div><div className="footer-copy">© 2026 cipher - cipher.so</div></div>
         <div className="footer-links"><Link href="#">Privacy</Link><Link href="#">Terms</Link><Link href="#">Twitter</Link><Link href="#">GitHub</Link></div>
       </footer>
     </>

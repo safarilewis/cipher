@@ -7,7 +7,7 @@ from app.db import init_db
 
 
 settings = get_settings()
-app = FastAPI(title="adpt API", version="0.1.0")
+app = FastAPI(title="cipher API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,7 +25,7 @@ def startup() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "service": "adpt-api"}
+    return {"ok": True, "service": "cipher-api"}
 
 
 app.include_router(profile.router)

@@ -15,7 +15,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < 5) {
+      } else if (next.size < 10) {
         next.add(id);
       }
       return next;
@@ -26,7 +26,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
     <form className="repo-selection" action={saveRepositorySelection}>
       {repositories.map((repo) => {
         const checked = selected.has(repo.id);
-        const disabled = !checked && selected.size >= 5;
+        const disabled = !checked && selected.size >= 10;
         return (
           <label className={`repo-row${disabled ? " disabled" : ""}`} key={repo.id}>
             <input
@@ -49,7 +49,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
         );
       })}
       <div className="repo-selection-footer">
-        <span className="muted">{selected.size}/5 repositories selected</span>
+        <span className="muted">{selected.size}/10 repositories selected</span>
         <PendingButton pendingLabel="Saving repo selection...">Save selected repos</PendingButton>
       </div>
     </form>

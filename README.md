@@ -67,18 +67,18 @@ Frontend runs at http://localhost:3000.
 
 - Python 3.11+
 - Node.js 20+
-- npm
+# cipher
 - Optional: Docker (for local Postgres/Redis)
-
+adpt is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
 ### 1) Start infra
 
 ```bash
-docker compose up postgres redis
-```
+| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://cipher:cipher@localhost:5432/cipher` |
+| `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
 
-### 2) Run backend
-
-```bash
+- Python web service (`cipher-api`)
+- Managed Postgres (`cipher-postgres`)
+- Managed Redis (`cipher-redis`)
 cd backend
 cp .env.example .env
 pip install -e ".[dev]"

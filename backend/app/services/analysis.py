@@ -211,6 +211,12 @@ OUTPUT REQUIREMENTS
 - evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles.
 - recruiter_copy: one honest polished paragraph, calibrated to career stage.
 
+HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
+- Provide a clear, human-readable analysis paragraph intended for the developer as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph.
+- After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
+    COMPETENCE_RANKING: Code Quality — Proficient (78); Delivery — Developing (62); Algorithms — Strong (85).
+- For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
+
 Return only a JSON object matching the schema.
 """.strip()
 
@@ -420,6 +426,7 @@ def build_analysis_payload(
             "stars": repo.stars,
             "forks": repo.forks,
             "commit_count": repo.commit_count,
+            "all_time_commit_count": getattr(repo, "all_time_commit_count", 0) or 0,
             "pushed_at": repo.pushed_at.isoformat() if repo.pushed_at else None,
         }
         for repo in repositories
@@ -472,7 +479,7 @@ def fallback_analysis(payload: dict) -> dict:
         "strengths": ["Evaluation unavailable in fallback mode."],
         "growth_areas": [
             "Connect an OpenAI API key to generate a full evaluation.",
-            "Select up to five repositories so code quality can be reviewed from actual code context.",
+            "Select up to ten repositories so code quality can be reviewed from actual code context.",
         ],
         "evidence_highlights": [
             f"{github.get('repository_count', 0)} GitHub repositories synced.",
@@ -533,7 +540,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
 
     try:
         repositories = db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
-        selected_repositories = [repo for repo in repositories if repo.selected_for_analysis][:5]
+        selected_repositories = [repo for repo in repositories if repo.selected_for_analysis][:10]
         access_token = get_github_access_token(db, user)
         selected_code_context = []
         for repo in selected_repositories:

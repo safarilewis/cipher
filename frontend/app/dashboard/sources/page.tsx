@@ -16,14 +16,15 @@ export default async function SourcesPage() {
     backendFetch<Source[]>("/sources"),
     backendFetch<Repository[]>("/sources/github/repositories")
   ]);
-  const totalCommits = repositories.reduce((sum, repo) => sum + repo.commit_count, 0);
+  const githubSource = sources.find((source) => source.kind === "github");
+  const allTimeCommitTotal = Number(githubSource?.summary?.all_time_commit_count ?? githubSource?.summary?.total_commit_count ?? repositories.reduce((sum, repo) => sum + repo.commit_count, 0));
   const selectedCount = repositories.filter((repo) => repo.selected_for_analysis).length;
 
   return (
     <>
       <section className="dashboard-page-head">
         <h1>Sources</h1>
-        <p className="lead">Connected data is user-controlled. Choose up to five GitHub repos for code review.</p>
+        <p className="lead">Connected data is user-controlled. Choose up to ten GitHub repos for code review.</p>
       </section>
       <section className="dashboard-card-grid">
         {sources.map((source) => (
@@ -52,11 +53,11 @@ export default async function SourcesPage() {
 
       <section className="panel stack">
         <div>
-          <span className="status">{selectedCount}/5 selected for code analysis</span>
+          <span className="status">{selectedCount}/10 selected for code analysis</span>
           <h2>Repository code review</h2>
           <p className="muted">
             adpt sends selected repos to the LLM with commit counts, README, repository structure, and a few key source files.
-            Total synced commits: {totalCommits}.
+            All-time synced commits: {allTimeCommitTotal}.
           </p>
         </div>
         {repositories.length > 0 ? (

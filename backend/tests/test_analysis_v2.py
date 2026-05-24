@@ -90,6 +90,7 @@ def test_build_payload_includes_dates_url_and_v2_inputs():
         stars=1,
         forks=0,
         commit_count=40,
+        all_time_commit_count=140,
         pushed_at=None,
         selected_for_analysis=True,
     )
@@ -106,6 +107,7 @@ def test_build_payload_includes_dates_url_and_v2_inputs():
 
     assert payload["sections"][0]["start_date"] == "2025-01"
     assert payload["sections"][0]["url"] == "https://example.com"
+    assert payload["selected_repositories_for_code_review"][0]["all_time_commit_count"] == 140
     assert payload["career_stage"]["stage"] in {"student", "early", "new_grad"}
     assert payload["signal_completeness"]["code_quality"]["source"] == "code_context"
 

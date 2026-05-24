@@ -44,7 +44,7 @@ export default async function DashboardPage() {
           <div className="profile-avatar">{initials}</div>
           <div>
             <div className="profile-name">{displayName}</div>
-            <div className="profile-handle">adpt.so/{profile.slug}</div>
+            <div className="profile-handle">cipher.so/{profile.slug}</div>
           </div>
         </div>
         <div className="profile-badges">

@@ -87,6 +87,7 @@ class GitHubRepository(Base):
     forks: Mapped[int] = mapped_column(Integer, default=0)
     open_issues: Mapped[int] = mapped_column(Integer, default=0)
     commit_count: Mapped[int] = mapped_column(Integer, default=0)
+    all_time_commit_count: Mapped[int] = mapped_column(Integer, default=0)
     selected_for_analysis: Mapped[bool] = mapped_column(Boolean, default=False)
     pushed_at: Mapped[datetime | None] = mapped_column(DateTime)
     code_analysis_snapshot: Mapped[dict | None] = mapped_column(JSON)

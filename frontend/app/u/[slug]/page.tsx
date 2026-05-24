@@ -24,7 +24,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
 
         {profile.evaluation && (
           <section className="panel stack">
-            <h2>adpt analysis</h2>
+            <h2>cipher analysis</h2>
             <p>{profile.evaluation.summary}</p>
             <p className="muted">{profile.evaluation.recruiter_copy}</p>
           </section>

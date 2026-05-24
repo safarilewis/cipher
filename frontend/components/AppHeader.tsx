@@ -10,7 +10,7 @@ export async function AppHeader() {
     <header className="topbar">
       <Link className="brand" href="/">
         <span className="brand-mark">a</span>
-        <span>adpt</span>
+        <span>cipher</span>
       </Link>
       <nav className="nav">
         {session ? (

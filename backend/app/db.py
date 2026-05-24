@@ -45,6 +45,8 @@ def ensure_lightweight_migrations() -> None:
     statements = []
     if "commit_count" not in existing:
         statements.append("ALTER TABLE github_repositories ADD COLUMN commit_count INTEGER DEFAULT 0")
+    if "all_time_commit_count" not in existing:
+        statements.append("ALTER TABLE github_repositories ADD COLUMN all_time_commit_count INTEGER DEFAULT 0")
     if "selected_for_analysis" not in existing:
         statements.append("ALTER TABLE github_repositories ADD COLUMN selected_for_analysis BOOLEAN DEFAULT FALSE")
     if "code_analysis_snapshot" not in existing:
@@ -60,6 +62,7 @@ def ensure_lightweight_migrations() -> None:
         for statement in statements:
             connection.execute(text(statement))
         connection.execute(text("UPDATE github_repositories SET commit_count = 0 WHERE commit_count IS NULL"))
+        connection.execute(text("UPDATE github_repositories SET all_time_commit_count = 0 WHERE all_time_commit_count IS NULL"))
         connection.execute(text("UPDATE github_repositories SET selected_for_analysis = FALSE WHERE selected_for_analysis IS NULL"))
 
 
