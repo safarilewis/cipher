@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "cipher"
-    database_url: str = "sqlite:///./cipher.db"
+    database_url: str = "sqlite:///./adpt.db"
     redis_url: str = "redis://localhost:6379/0"
     backend_session_secret: str = "dev-secret"
     auth_trust_dev_headers: bool = True

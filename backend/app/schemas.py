@@ -80,7 +80,7 @@ class RepositoryOut(BaseModel):
 
 
 class RepositorySelectionIn(BaseModel):
-    repository_ids: list[str] = Field(default_factory=list, max_length=10)
+    repository_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class LeetCodeSnapshotOut(BaseModel):

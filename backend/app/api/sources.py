@@ -55,7 +55,7 @@ def select_github_repositories(
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
 ) -> list[GitHubRepository]:
-    repository_ids = set(payload.repository_ids[:10])
+    repository_ids = set(payload.repository_ids[:20])
     repos = db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
     owned_ids = {repo.id for repo in repos}
     invalid = repository_ids - owned_ids

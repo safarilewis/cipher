@@ -73,7 +73,7 @@ cipher is a resume-replacement developer profile platform. Instead of a static P
 ### 1) Start infra
 
 ```bash
-| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://cipher:cipher@localhost:5432/cipher` |
+| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://adpt:adpt@localhost:5432/adpt` |
 | `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
 
 - Python web service (`cipher-api`)
@@ -104,7 +104,7 @@ Open http://localhost:3000.
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://cipher:cipher@localhost:5432/cipher` |
+| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://adpt:adpt@localhost:5432/adpt` |
 | `REDIS_URL` | No | Redis connection string. |
 | `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
 | `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |

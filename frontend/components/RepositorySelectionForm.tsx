@@ -6,6 +6,8 @@ import type { Repository } from "@/lib/types";
 import { PendingButton } from "@/components/PendingButton";
 
 export function RepositorySelectionForm({ repositories }: { repositories: Repository[] }) {
+  const maxSelectedRepositories = 20;
+
   const [selected, setSelected] = useState(() =>
     new Set(repositories.filter((repo) => repo.selected_for_analysis).map((repo) => repo.id))
   );
@@ -15,7 +17,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < 10) {
+      } else if (next.size < maxSelectedRepositories) {
         next.add(id);
       }
       return next;
@@ -26,7 +28,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
     <form className="repo-selection" action={saveRepositorySelection}>
       {repositories.map((repo) => {
         const checked = selected.has(repo.id);
-        const disabled = !checked && selected.size >= 10;
+        const disabled = !checked && selected.size >= maxSelectedRepositories;
         return (
           <label className={`repo-row${disabled ? " disabled" : ""}`} key={repo.id}>
             <input
@@ -49,7 +51,7 @@ export function RepositorySelectionForm({ repositories }: { repositories: Reposi
         );
       })}
       <div className="repo-selection-footer">
-        <span className="muted">{selected.size}/10 repositories selected</span>
+        <span className="muted">{selected.size}/{maxSelectedRepositories} repositories selected</span>
         <PendingButton pendingLabel="Saving repo selection...">Save selected repos</PendingButton>
       </div>
     </form>

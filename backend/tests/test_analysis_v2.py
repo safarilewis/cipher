@@ -8,6 +8,7 @@ from app.services.analysis import (
     infer_career_stage,
     legacy_project_complexity_notes,
     legacy_skill_model,
+    limit_code_context_for_prompt,
 )
 
 
@@ -143,3 +144,23 @@ def test_v2_schema_has_nested_additional_properties_false():
             walk(items)
 
     walk(ANALYSIS_SCHEMA)
+
+
+def test_limit_code_context_for_prompt_respects_repo_and_char_budgets():
+    repos = [
+        SimpleNamespace(full_name="me/high-commit", commit_count=500, pushed_at=None),
+        SimpleNamespace(full_name="me/medium-commit", commit_count=200, pushed_at=None),
+        SimpleNamespace(full_name="me/low-commit", commit_count=10, pushed_at=None),
+    ]
+    contexts = [
+        {"full_name": "me/high-commit", "readme": "a" * 50, "structure_sample": ["src/a.py"], "key_files": [{"path": "src/a.py", "content": "x" * 50}]},
+        {"full_name": "me/medium-commit", "readme": "b" * 50, "structure_sample": ["src/b.py"], "key_files": [{"path": "src/b.py", "content": "y" * 50}]},
+        {"full_name": "me/low-commit", "readme": "c" * 50, "structure_sample": ["src/c.py"], "key_files": [{"path": "src/c.py", "content": "z" * 50}]},
+    ]
+
+    included, omissions = limit_code_context_for_prompt(repos, contexts, max_repos=2, max_chars=240)
+
+    assert len(included) == 2
+    assert included[0]["full_name"] == "me/high-commit"
+    assert included[0]["key_files"][0]["content"] == "x" * 50
+    assert any(item["full_name"] == "me/low-commit" for item in omissions)

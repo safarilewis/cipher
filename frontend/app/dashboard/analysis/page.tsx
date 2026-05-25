@@ -3,7 +3,7 @@ import { CheckCircle2, RefreshCcw } from "lucide-react";
 import { auth } from "@/auth";
 import { createAnalysis, reviewAnalysis } from "@/app/actions";
 import { backendFetch } from "@/lib/backend";
-import type { Evaluation } from "@/lib/types";
+import type { Evaluation, Repository } from "@/lib/types";
 import { PendingButton } from "@/components/PendingButton";
 
 function ListBlock({ title, items }: { title: string; items: string[] | null }) {
@@ -11,24 +11,88 @@ function ListBlock({ title, items }: { title: string; items: string[] | null }) 
   return (
     <div className="card">
       <h3>{title}</h3>
-      <ul>
+      <ul className="analysis-list">
         {items.map((item) => <li key={item}>{item}</li>)}
       </ul>
     </div>
   );
 }
 
+function getLanguages(repositories: Repository[]) {
+  const counts = new Map<string, number>();
+
+  for (const repository of repositories) {
+    if (!repository.language) continue;
+    counts.set(repository.language, (counts.get(repository.language) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([language, count]) => `${language} (${count})`);
+}
+
+function getOverallCipherScore(evaluation: Evaluation | null) {
+  const overall = evaluation?.skill_model_v2 && typeof evaluation.skill_model_v2 === "object"
+    ? (evaluation.skill_model_v2 as { overall?: { score?: number | null; confidence?: string | null } }).overall
+    : null;
+
+  if (!overall || overall.score == null) {
+    return { label: "Insufficient data", note: "Waiting on enough signal to score" };
+  }
+
+  return {
+    label: `${Math.round(overall.score)}/100`,
+    note: `Confidence: ${overall.confidence ?? "unknown"}`,
+  };
+}
+
 export default async function AnalysisPage() {
   const session = await auth();
   if (!session) redirect("/login");
 
-  const evaluation = await backendFetch<Evaluation | null>("/analysis/latest");
+  const [evaluation, repositories] = await Promise.all([
+    backendFetch<Evaluation | null>("/analysis/latest"),
+    backendFetch<Repository[]>("/sources/github/repositories"),
+  ]);
+
+  const totalCommits = repositories.reduce((sum, repository) => sum + repository.commit_count, 0);
+  const selectedRepositories = repositories.filter((repository) => repository.selected_for_analysis);
+  const cipherScore = getOverallCipherScore(evaluation);
+  const languages = getLanguages(repositories);
+
+  const reviewLabel = evaluation ? (evaluation.reviewed ? "Reviewed" : "Needs review") : "No analysis";
+  const statusLabel = evaluation?.status ? evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1) : "Idle";
 
   return (
     <>
-      <section className="panel stack">
-        <h1>Analysis</h1>
-        <p className="lead">Generate evidence-backed profile copy, then review it before anything can be published.</p>
+      <section className="panel stack analysis-hero">
+        <div className="stack">
+          <span className="status">Analysis workspace</span>
+          <h1>Analysis</h1>
+          <p className="lead">Generate evidence-backed profile copy, then review it before anything can be published.</p>
+        </div>
+        <div className="metrics analysis-metrics">
+          <div className="metric analysis-stat">
+            <div className="metric-val g">{totalCommits.toLocaleString()}</div>
+            <div className="metric-key">GitHub commits</div>
+            <div className="analysis-stat-note">Across {repositories.length} synced repositories</div>
+          </div>
+          <div className="metric analysis-stat">
+            <div className="metric-val">{selectedRepositories.length}</div>
+            <div className="metric-key">Repos in scope</div>
+            <div className="analysis-stat-note">Selected for the current evaluation</div>
+          </div>
+          <div className="metric analysis-stat">
+            <div className="metric-val">{cipherScore.label}</div>
+            <div className="metric-key">Overall cipher score</div>
+            <div className="analysis-stat-note">{cipherScore.note}</div>
+          </div>
+          <div className="metric analysis-stat">
+            <div className="metric-val">{reviewLabel}</div>
+            <div className="metric-key">Review state</div>
+            <div className="analysis-stat-note">{statusLabel}</div>
+          </div>
+        </div>
         <form action={createAnalysis}>
           <PendingButton pendingLabel="Analyzing signal..."><RefreshCcw size={16} /> Generate new analysis</PendingButton>
         </form>
@@ -40,19 +104,20 @@ export default async function AnalysisPage() {
         <section className="stack">
           <span className="status">{evaluation.status}{evaluation.reviewed ? " reviewed" : ""}</span>
           {evaluation.error && <p className="muted">{evaluation.error}</p>}
-          <div className="panel">
+          <div className="panel stack">
             <h2>Summary</h2>
             <p>{evaluation.summary}</p>
           </div>
-          <div className="grid">
+          <div className="grid analysis-grid">
             <ListBlock title="Strengths" items={evaluation.strengths} />
             <ListBlock title="Growth areas" items={evaluation.growth_areas} />
             <ListBlock title="Project complexity" items={evaluation.project_complexity_notes} />
             <ListBlock title="Evidence highlights" items={evaluation.evidence_highlights} />
+            <ListBlock title="Languages" items={languages} />
           </div>
-          <div className="panel">
+          <div className="panel stack">
             <h2>Recruiter copy</h2>
-            <p>{evaluation.recruiter_copy}</p>
+            <div className="analysis-copy">{evaluation.recruiter_copy}</div>
           </div>
           {!evaluation.reviewed && evaluation.status === "ready" && (
             <form action={reviewAnalysis}>

@@ -9,7 +9,6 @@ from app.models import ConnectedAccount, GitHubRepository, SourceKind, User
 
 GITHUB_API = "https://api.github.com"
 COMMIT_PAGE_SIZE = 100
-MAX_CODE_FILE_CHARS = 6000
 MAX_TREE_PATHS = 100
 KEY_FILE_NAMES = {
     "README.md",
@@ -217,18 +216,50 @@ def decode_github_content(payload: dict) -> str:
     return str(content)
 
 
+def fetch_blob_content(client: httpx.Client, blob_url: str | None, headers: dict[str, str]) -> str:
+    if not blob_url:
+        return ""
+    blob_response = client.get(blob_url, headers=headers)
+    if blob_response.status_code != 200:
+        return ""
+    return decode_github_content(blob_response.json())
+
+
+def fetch_content_text(client: httpx.Client, url: str, headers: dict[str, str]) -> str:
+    response = client.get(url, headers=headers)
+    if response.status_code != 200:
+        return ""
+
+    payload = response.json()
+    if isinstance(payload, list):
+        return ""
+
+    text = decode_github_content(payload)
+    if payload.get("truncated") and payload.get("git_url"):
+        blob_text = fetch_blob_content(client, payload.get("git_url"), headers)
+        if blob_text:
+            return blob_text
+
+    if text:
+        return text
+
+    download_url = payload.get("download_url")
+    if download_url:
+        raw_response = client.get(str(download_url), headers=headers)
+        if raw_response.status_code == 200:
+            return raw_response.text
+    return ""
+
+
 def fetch_repo_code_context(full_name: str, access_token: str | None = None) -> dict:
     headers = github_headers(access_token)
-    with httpx.Client(timeout=25) as client:
+    with httpx.Client(timeout=35) as client:
         repo_response = client.get(f"{GITHUB_API}/repos/{full_name}", headers=headers)
         repo_response.raise_for_status()
         repo = repo_response.json()
         default_branch = repo.get("default_branch") or "main"
 
-        readme_text = ""
-        readme_response = client.get(f"{GITHUB_API}/repos/{full_name}/readme", headers=headers)
-        if readme_response.status_code == 200:
-            readme_text = decode_github_content(readme_response.json())[:MAX_CODE_FILE_CHARS]
+        readme_text = fetch_content_text(client, f"{GITHUB_API}/repos/{full_name}/readme", headers)
 
         tree_paths: list[str] = []
         tree_response = client.get(
@@ -245,11 +276,9 @@ def fetch_repo_code_context(full_name: str, access_token: str | None = None) -> 
 
         key_files = []
         for path in choose_key_paths(tree_paths):
-            content_response = client.get(f"{GITHUB_API}/repos/{full_name}/contents/{path}", headers=headers)
-            if content_response.status_code != 200:
-                continue
-            text = decode_github_content(content_response.json())
-            key_files.append({"path": path, "content": text[:MAX_CODE_FILE_CHARS]})
+            text = fetch_content_text(client, f"{GITHUB_API}/repos/{full_name}/contents/{path}", headers)
+            if text:
+                key_files.append({"path": path, "content": text})
 
     return {
         "full_name": full_name,

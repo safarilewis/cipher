@@ -13,6 +13,10 @@ from app.services.scoring import github_quality_signals, leetcode_signals, profi
 
 CAREER_STAGES = {"student", "new_grad", "early", "mid", "senior"}
 CONFIDENCE_LEVELS = ["high", "medium", "low"]
+MAX_PROMPT_CODE_CONTEXT_REPOS = 10
+MAX_PROMPT_CODE_CONTEXT_CHARS = 220000
+RETRY_PROMPT_CODE_CONTEXT_REPOS = 6
+RETRY_PROMPT_CODE_CONTEXT_CHARS = 120000
 
 
 def scored_dimension_schema(extra_properties: dict | None = None) -> dict:
@@ -193,6 +197,7 @@ If no algorithms signal exists, set algorithms.score to null, algorithms.source 
 CODE QUALITY SCORING
 Only score code_quality when selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
 Return one repository_evaluation object per repository with code context. If no code context is available, return an empty array.
+If selected_repository_code_context_omissions is non-empty, treat those repositories as omitted due prompt budget constraints, not as missing user signal.
 
 SCORING HEURISTICS
 - algorithms: strong LeetCode plus repo DSA -> 85-100; strong LeetCode alone -> 70-85; moderate LeetCode plus strong repo DSA -> 70-85; repo-only strong DSA -> 55-75; weak/minor signal -> 30-50; no signal -> null.
@@ -208,14 +213,18 @@ OUTPUT REQUIREMENTS
 - strengths: 3-5 bullets; each must cite a concrete source.
 - growth_areas: 2-4 constructive bullets. For students, do not list lack of production experience as a weakness.
 - repository_evaluations: one object per repository with code context; empty array when no code context exists.
-- evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles.
-- recruiter_copy: one honest polished paragraph, calibrated to career stage.
+- evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles, each using APA-like parenthetical in-text citations such as `(repo-name, path/to/file.py)` or `(leetcode, 213 solved)`.
+- recruiter_copy: one honest polished paragraph, calibrated to career stage, that also includes a clear recommendation to the recruiter about the candidate's technical ability and the kinds of roles they should be considered for.
 
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
-- Provide a clear, human-readable analysis paragraph intended for the developer as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph.
+- Provide a clear, human-readable analysis paragraph intended for the developer as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph. Include an explicit recruiter recommendation sentence that names the technical ability level and the roles they should be considered for.
 - After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
     COMPETENCE_RANKING: Code Quality — Proficient (78); Delivery — Developing (62); Algorithms — Strong (85).
 - For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
+
+CITATION STYLE
+- When referring to evidence, prefer concise APA-like parenthetical citations in the form `(source, detail)` or `(source, detail; source, detail)`.
+- Reuse citations consistently across summary, strengths, growth areas, evidence highlights, and recruiter copy so the reader can trace each claim back to a specific repo, file, or stat.
 
 Return only a JSON object matching the schema.
 """.strip()
@@ -417,6 +426,8 @@ def build_analysis_payload(
     leetcode: LeetCodeSnapshot | None,
     sections: list[ProfileSection],
     selected_code_context: list[dict] | None = None,
+    selected_code_context_omissions: list[dict] | None = None,
+    selected_code_context_total: int | None = None,
 ) -> dict:
     selected_repositories = [
         {
@@ -438,6 +449,8 @@ def build_analysis_payload(
         "metadata_complexity_hint": metadata_complexity_hint(selected_repositories),
         "selected_repositories_for_code_review": selected_repositories,
         "selected_repository_code_context": selected_code_context or [],
+        "selected_repository_code_context_total": selected_code_context_total if selected_code_context_total is not None else len(selected_code_context or []),
+        "selected_repository_code_context_omissions": selected_code_context_omissions or [],
         "leetcode": leetcode_signals(leetcode),
         "sections": [
             {
@@ -479,7 +492,7 @@ def fallback_analysis(payload: dict) -> dict:
         "strengths": ["Evaluation unavailable in fallback mode."],
         "growth_areas": [
             "Connect an OpenAI API key to generate a full evaluation.",
-            "Select up to ten repositories so code quality can be reviewed from actual code context.",
+            "Select up to twenty repositories so code quality can be reviewed from actual code context.",
         ],
         "evidence_highlights": [
             f"{github.get('repository_count', 0)} GitHub repositories synced.",
@@ -487,6 +500,54 @@ def fallback_analysis(payload: dict) -> dict:
         ],
         "recruiter_copy": "Evaluation unavailable in fallback mode.",
     }
+
+
+def context_char_count(context: dict) -> int:
+    total = len(context.get("readme") or "")
+    total += sum(len(path) for path in context.get("structure_sample") or [])
+    for key_file in context.get("key_files") or []:
+        total += len(key_file.get("path") or "")
+        total += len(key_file.get("content") or "")
+    return total
+
+
+def repo_priority(selected_repositories: list[GitHubRepository]) -> dict[str, tuple[int, str]]:
+    priority = {}
+    for repo in selected_repositories:
+        pushed_at = repo.pushed_at.isoformat() if getattr(repo, "pushed_at", None) else ""
+        priority[repo.full_name] = (int(getattr(repo, "commit_count", 0) or 0), pushed_at)
+    return priority
+
+
+def limit_code_context_for_prompt(
+    selected_repositories: list[GitHubRepository],
+    selected_code_context: list[dict],
+    max_repos: int,
+    max_chars: int,
+) -> tuple[list[dict], list[dict]]:
+    priorities = repo_priority(selected_repositories)
+    ordered = sorted(
+        selected_code_context,
+        key=lambda context: priorities.get(context.get("full_name", ""), (0, "")),
+        reverse=True,
+    )
+
+    included: list[dict] = []
+    omissions: list[dict] = []
+    used_chars = 0
+    for context in ordered:
+        full_name = context.get("full_name", "unknown")
+        char_count = context_char_count(context)
+        if len(included) >= max_repos:
+            omissions.append({"full_name": full_name, "reason": "repo_limit", "char_count": char_count})
+            continue
+        if used_chars + char_count > max_chars:
+            omissions.append({"full_name": full_name, "reason": "char_budget", "char_count": char_count})
+            continue
+        included.append(context)
+        used_chars += char_count
+
+    return included, omissions
 
 
 def legacy_skill_model(v2_skill_model: dict | None) -> dict | None:
@@ -540,7 +601,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
 
     try:
         repositories = db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
-        selected_repositories = [repo for repo in repositories if repo.selected_for_analysis][:10]
+        selected_repositories = [repo for repo in repositories if repo.selected_for_analysis][:20]
         access_token = get_github_access_token(db, user)
         selected_code_context = []
         for repo in selected_repositories:
@@ -550,6 +611,13 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 selected_code_context.append(context)
             except Exception as exc:
                 selected_code_context.append({"full_name": repo.full_name, "error": str(exc)})
+
+        prompt_code_context, prompt_omissions = limit_code_context_for_prompt(
+            selected_repositories,
+            [context for context in selected_code_context if "error" not in context],
+            max_repos=MAX_PROMPT_CODE_CONTEXT_REPOS,
+            max_chars=MAX_PROMPT_CODE_CONTEXT_CHARS,
+        )
         leetcode = (
             db.query(LeetCodeSnapshot)
             .filter(LeetCodeSnapshot.user_id == user.id)
@@ -557,8 +625,35 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             .first()
         )
         sections = db.query(ProfileSection).filter(ProfileSection.user_id == user.id).order_by(ProfileSection.order).all()
-        payload = build_analysis_payload(user, repositories, leetcode, sections, selected_code_context)
-        generated = generate_with_openai(payload)
+        payload = build_analysis_payload(
+            user,
+            repositories,
+            leetcode,
+            sections,
+            prompt_code_context,
+            prompt_omissions,
+            selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+        )
+
+        try:
+            generated = generate_with_openai(payload)
+        except Exception:
+            retry_context, retry_omissions = limit_code_context_for_prompt(
+                selected_repositories,
+                [context for context in selected_code_context if "error" not in context],
+                max_repos=RETRY_PROMPT_CODE_CONTEXT_REPOS,
+                max_chars=RETRY_PROMPT_CODE_CONTEXT_CHARS,
+            )
+            retry_payload = build_analysis_payload(
+                user,
+                repositories,
+                leetcode,
+                sections,
+                retry_context,
+                retry_omissions,
+                selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+            )
+            generated = generate_with_openai(retry_payload)
 
         evaluation.status = AnalysisStatus.ready
         evaluation.summary = generated["summary"]

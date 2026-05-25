@@ -26,7 +26,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <section className="panel stack">
             <h2>cipher analysis</h2>
             <p>{profile.evaluation.summary}</p>
-            <p className="muted">{profile.evaluation.recruiter_copy}</p>
+            <div className="analysis-copy">{profile.evaluation.recruiter_copy}</div>
           </section>
         )}
 
