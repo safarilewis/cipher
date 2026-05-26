@@ -23,7 +23,7 @@ export default function HomePage() {
       <main className="hero">
         <div className="hero-badge">
           <div className="hero-badge-dot" />
-          Now in early access
+          Early access
         </div>
 
         <h1>Your code is your resume.<br /><span className="dim">Stop writing about it.</span></h1>

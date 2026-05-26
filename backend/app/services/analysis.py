@@ -1,7 +1,9 @@
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Literal
 
+from anthropic import Anthropic
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
@@ -594,6 +596,38 @@ def generate_with_openai(payload: dict) -> dict:
     return json.loads(response.output_text)
 
 
+def extract_json_response(text: str) -> dict:
+    cleaned_text = text.strip()
+    if cleaned_text.startswith("```"):
+        cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
+        cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
+    return json.loads(cleaned_text)
+
+
+def generate_with_anthropic(payload: dict) -> dict:
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return fallback_analysis(payload)
+
+    client = Anthropic(api_key=settings.anthropic_api_key)
+    response = client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=4096,
+        system=EVALUATION_INSTRUCTIONS,
+        messages=[{"role": "user", "content": build_evaluation_input(payload)}],
+    )
+    text_content = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
+    return extract_json_response(text_content)
+
+
+def generate_analysis(payload: dict) -> dict:
+    settings = get_settings()
+    provider: Literal["openai", "anthropic"] = settings.analysis_provider
+    if provider == "anthropic":
+        return generate_with_anthropic(payload)
+    return generate_with_openai(payload)
+
+
 def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> GeneratedEvaluation:
     evaluation.status = AnalysisStatus.running
     evaluation.updated_at = datetime.utcnow()
@@ -636,7 +670,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
         )
 
         try:
-            generated = generate_with_openai(payload)
+            generated = generate_analysis(payload)
         except Exception:
             retry_context, retry_omissions = limit_code_context_for_prompt(
                 selected_repositories,
@@ -653,7 +687,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 retry_omissions,
                 selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
             )
-            generated = generate_with_openai(retry_payload)
+            generated = generate_analysis(retry_payload)
 
         evaluation.status = AnalysisStatus.ready
         evaluation.summary = generated["summary"]

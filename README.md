@@ -108,8 +108,11 @@ Open http://localhost:3000.
 | `REDIS_URL` | No | Redis connection string. |
 | `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
 | `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
+| `ANALYSIS_PROVIDER` | No | Default analysis provider. Use `openai` for GPT or `anthropic` for Claude. Default: `openai`. |
 | `OPENAI_API_KEY` | No | Enables OpenAI analysis generation. If missing, fallback deterministic analysis is used. |
 | `OPENAI_MODEL` | No | OpenAI model name. Default: `gpt-5.2`. |
+| `ANTHROPIC_API_KEY` | No | Enables Anthropic analysis generation. If missing, fallback deterministic analysis is used. |
+| `ANTHROPIC_MODEL` | No | Anthropic model name. Default: `claude-sonnet-4-20250514`. |
 | `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for frontend. Default: `http://localhost:3000`. |
 
 ### Frontend (`frontend/.env.local`)

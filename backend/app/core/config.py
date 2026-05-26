@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,8 +10,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     backend_session_secret: str = "dev-secret"
     auth_trust_dev_headers: bool = True
+    analysis_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.2"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-20250514"
     frontend_origin: str = "http://localhost:3000"
     free_tier_refresh_days: int = 14
 

@@ -5,6 +5,7 @@ from app.services.analysis import (
     assess_signal_completeness,
     build_analysis_payload,
     fallback_analysis,
+    generate_analysis,
     infer_career_stage,
     legacy_project_complexity_notes,
     legacy_skill_model,
@@ -164,3 +165,29 @@ def test_limit_code_context_for_prompt_respects_repo_and_char_budgets():
     assert included[0]["full_name"] == "me/high-commit"
     assert included[0]["key_files"][0]["content"] == "x" * 50
     assert any(item["full_name"] == "me/low-commit" for item in omissions)
+
+
+def test_generate_analysis_routes_to_openai(monkeypatch):
+    class Settings:
+        analysis_provider = "openai"
+
+    monkeypatch.setattr("app.services.analysis.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.services.analysis.generate_with_openai", lambda payload: {"provider": "openai"})
+    monkeypatch.setattr("app.services.analysis.generate_with_anthropic", lambda payload: {"provider": "anthropic"})
+
+    result = generate_analysis({"summary": "payload"})
+
+    assert result["provider"] == "openai"
+
+
+def test_generate_analysis_routes_to_anthropic(monkeypatch):
+    class Settings:
+        analysis_provider = "anthropic"
+
+    monkeypatch.setattr("app.services.analysis.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.services.analysis.generate_with_openai", lambda payload: {"provider": "openai"})
+    monkeypatch.setattr("app.services.analysis.generate_with_anthropic", lambda payload: {"provider": "anthropic"})
+
+    result = generate_analysis({"summary": "payload"})
+
+    assert result["provider"] == "anthropic"
