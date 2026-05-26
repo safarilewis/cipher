@@ -1310,6 +1310,69 @@ footer {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.profile-section-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.section-card {
+  background: linear-gradient(180deg, rgba(61, 214, 140, 0.035), transparent 42%), var(--panel);
+  min-width: 0;
+}
+
+.section-card-head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.section-card-head h3 {
+  margin: 4px 0 0;
+}
+
+.section-card-meta {
+  color: var(--text-3);
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.section-card-description {
+  color: var(--text-2);
+  line-height: 1.65;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.section-card-link {
+  color: var(--green);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.section-card-form {
+  display: grid;
+  gap: 12px;
+}
+
+.section-card-dates {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.section-card-delete {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.section-card-delete button {
+  min-width: 120px;
+}
+
 .source-card {
   background: linear-gradient(180deg, rgba(61, 214, 140, 0.035), transparent 42%), var(--panel);
   min-width: 0;
