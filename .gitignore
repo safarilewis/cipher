@@ -20,3 +20,4 @@ coverage/
 *.sqlite
 *.sqlite3
 personal/
+logs/
