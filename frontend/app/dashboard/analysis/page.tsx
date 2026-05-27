@@ -33,7 +33,7 @@ function getLanguages(repositories: Repository[]) {
 
 function getOverallCipherScore(evaluation: Evaluation | null) {
   const overall = evaluation?.skill_model_v2 && typeof evaluation.skill_model_v2 === "object"
-    ? (evaluation.skill_model_v2 as { overall?: { score?: number | null; confidence?: string | null } }).overall
+    ? (evaluation.skill_model_v2 as { overall?: { score?: number | null; confidence?: string | null; scope_label?: string | null } }).overall
     : null;
 
   if (!overall || overall.score == null) {
@@ -42,7 +42,7 @@ function getOverallCipherScore(evaluation: Evaluation | null) {
 
   return {
     label: `${Math.round(overall.score)}/100`,
-    note: `Confidence: ${overall.confidence ?? "unknown"}`,
+    note: `${overall.scope_label ? `${overall.scope_label} · ` : ""}Confidence: ${overall.confidence ?? "unknown"}`,
   };
 }
 

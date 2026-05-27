@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.github import fetch_all_time_commit_count, fetch_commit_count
+from app.services.github import fetch_all_time_commit_count, fetch_commit_count, filter_review_paths, is_committed_env_file
 
 
 class FakeResponse:
@@ -52,3 +52,27 @@ async def test_fetch_all_time_commit_count_matches_default_behavior():
 
     assert count == 137
     assert "since" not in client.calls[0]["params"]
+
+
+def test_filter_review_paths_ignores_generated_and_cache_files():
+    paths = [
+        "src/app.py",
+        "src/__pycache__/app.cpython-312.pyc",
+        "node_modules/react/index.js",
+        "build/output.js",
+        "dist/app.js",
+        "README.md",
+    ]
+
+    filtered = filter_review_paths(paths)
+
+    assert filtered == ["src/app.py", "README.md"]
+
+
+def test_is_committed_env_file_identifies_sensitive_env_paths():
+    assert is_committed_env_file(".env")
+    assert is_committed_env_file("frontend/.env.local")
+    assert is_committed_env_file("backend/.env.production")
+    assert is_committed_env_file("config/env.dev")
+    assert not is_committed_env_file(".env.example")
+    assert not is_committed_env_file("README.md")

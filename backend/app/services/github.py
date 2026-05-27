@@ -26,6 +26,39 @@ KEY_FILE_NAMES = {
     "src/App.tsx",
 }
 
+IGNORED_REVIEW_PATH_SEGMENTS = (
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "node_modules",
+    ".next",
+    "dist",
+    "build",
+)
+
+IGNORED_REVIEW_FILE_SUFFIXES = (
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".o",
+    ".so",
+    ".dll",
+    ".dylib",
+)
+
+
+def is_committed_env_file(path: str) -> bool:
+    lowered = path.lower()
+    file_name = lowered.split("/")[-1]
+    return (
+        file_name == ".env"
+        or file_name.startswith(".env.")
+        or file_name.startswith("env.")
+        or file_name == ".envrc"
+    )
+
 
 def parse_github_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -194,6 +227,8 @@ def get_github_access_token(db: Session, user: User) -> str | None:
 def choose_key_paths(paths: list[str]) -> list[str]:
     selected = []
     for path in paths:
+        if is_review_noise_path(path):
+            continue
         if path in KEY_FILE_NAMES or path.split("/")[-1] in KEY_FILE_NAMES:
             selected.append(path)
     if len(selected) >= 6:
@@ -201,11 +236,24 @@ def choose_key_paths(paths: list[str]) -> list[str]:
 
     preferred_prefixes = ("app/", "src/", "backend/app/", "frontend/app/", "lib/", "components/")
     for path in paths:
+        if is_review_noise_path(path):
+            continue
         if path.endswith((".py", ".ts", ".tsx", ".js")) and path.startswith(preferred_prefixes):
             selected.append(path)
         if len(selected) >= 6:
             break
     return selected[:6]
+
+
+def is_review_noise_path(path: str) -> bool:
+    lowered = path.lower()
+    if any(segment in lowered for segment in IGNORED_REVIEW_PATH_SEGMENTS):
+        return True
+    return lowered.endswith(IGNORED_REVIEW_FILE_SUFFIXES)
+
+
+def filter_review_paths(paths: list[str]) -> list[str]:
+    return [path for path in paths if not is_review_noise_path(path)]
 
 
 def decode_github_content(payload: dict) -> str:
@@ -274,8 +322,11 @@ def fetch_repo_code_context(full_name: str, access_token: str | None = None) -> 
                 if item.get("type") == "blob"
             ]
 
+        review_paths = filter_review_paths(tree_paths)
+        committed_env_files = [path for path in tree_paths if is_committed_env_file(path)]
+
         key_files = []
-        for path in choose_key_paths(tree_paths):
+        for path in choose_key_paths(review_paths):
             text = fetch_content_text(client, f"{GITHUB_API}/repos/{full_name}/contents/{path}", headers)
             if text:
                 key_files.append({"path": path, "content": text})
@@ -283,7 +334,9 @@ def fetch_repo_code_context(full_name: str, access_token: str | None = None) -> 
     return {
         "full_name": full_name,
         "default_branch": default_branch,
-        "file_count": len(tree_paths),
+        "file_count": len(review_paths),
+        "ignored_file_count": len(tree_paths) - len(review_paths),
+        "committed_env_files": committed_env_files,
         "structure_sample": tree_paths[:MAX_TREE_PATHS],
         "readme": readme_text,
         "key_files": key_files,

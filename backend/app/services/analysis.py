@@ -15,10 +15,123 @@ from app.services.scoring import github_quality_signals, leetcode_signals, profi
 
 CAREER_STAGES = {"student", "new_grad", "early", "mid", "senior"}
 CONFIDENCE_LEVELS = ["high", "medium", "low"]
+OVERALL_SCORE_WEIGHTS = {"code_quality": 0.50, "delivery": 0.35, "algorithms": 0.15}
 MAX_PROMPT_CODE_CONTEXT_REPOS = 10
 MAX_PROMPT_CODE_CONTEXT_CHARS = 220000
 RETRY_PROMPT_CODE_CONTEXT_REPOS = 6
 RETRY_PROMPT_CODE_CONTEXT_CHARS = 120000
+
+
+def normalize_overall_score(skill_model: dict) -> dict:
+    overall = skill_model.get("overall") if isinstance(skill_model, dict) else None
+    valid_scores = []
+    for dimension, weight in OVERALL_SCORE_WEIGHTS.items():
+        dimension_model = skill_model.get(dimension, {}) if isinstance(skill_model, dict) else {}
+        score = dimension_model.get("score") if isinstance(dimension_model, dict) else None
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            valid_scores.append((score, weight))
+
+    base_overall = dict(overall) if isinstance(overall, dict) else {}
+
+    if len(valid_scores) < 2:
+        base_overall["score"] = None
+        base_overall["confidence"] = "low"
+        base_overall["percentile_note"] = base_overall.get("percentile_note", "")
+        return base_overall
+
+    weighted_score = sum(score * weight for score, weight in valid_scores) / sum(weight for _, weight in valid_scores)
+    base_overall["score"] = round(weighted_score, 1)
+    base_overall["confidence"] = "high" if len(valid_scores) == 3 else "medium"
+    base_overall["percentile_note"] = base_overall.get("percentile_note", "")
+    return base_overall
+
+
+def count_end_to_end_systems(repository_evaluations: list | None) -> int:
+    if not repository_evaluations:
+        return 0
+    return sum(1 for repo in repository_evaluations if repo.get("complexity_tier") == "system")
+
+
+def floor_delivery_score(skill_model: dict, repository_evaluations: list | None) -> dict:
+    if not isinstance(skill_model, dict):
+        return skill_model
+
+    delivery = skill_model.get("delivery")
+    if not isinstance(delivery, dict):
+        return skill_model
+
+    system_count = count_end_to_end_systems(repository_evaluations)
+    if system_count < 3:
+        return skill_model
+
+    floored_delivery = dict(delivery)
+    current_score = floored_delivery.get("score")
+    if not isinstance(current_score, (int, float)) or isinstance(current_score, bool):
+        floored_delivery["score"] = 78
+    else:
+        floored_delivery["score"] = max(round(current_score, 1), 78)
+    if floored_delivery.get("confidence") == "low":
+        floored_delivery["confidence"] = "medium"
+
+    updated_skill_model = dict(skill_model)
+    updated_skill_model["delivery"] = floored_delivery
+    return updated_skill_model
+
+
+def scope_overall_score(skill_model: dict, career_stage: dict | None) -> dict:
+    if not isinstance(skill_model, dict):
+        return skill_model
+
+    overall = skill_model.get("overall")
+    if not isinstance(overall, dict):
+        return skill_model
+
+    stage = career_stage.get("stage") if isinstance(career_stage, dict) else None
+    stage_nouns = {
+        "student": "intern",
+        "new_grad": "new grad",
+        "early": "early-career engineer",
+        "mid": "mid-level engineer",
+        "senior": "senior engineer",
+    }
+    score = overall.get("score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        if score >= 90:
+            adjective = "Great"
+        elif score >= 80:
+            adjective = "Strong"
+        elif score >= 70:
+            adjective = "Solid"
+        elif score >= 60:
+            adjective = "Developing"
+        else:
+            adjective = "Emerging"
+    else:
+        adjective = "Insufficient"
+
+    scoped_overall = dict(overall)
+    scoped_overall["scope_stage"] = stage or "unknown"
+    scoped_overall["scope_label"] = f"{adjective} {stage_nouns.get(stage, 'candidate')}"
+
+    updated_skill_model = dict(skill_model)
+    updated_skill_model["overall"] = scoped_overall
+    return updated_skill_model
+
+
+def normalize_generated_analysis(generated: dict) -> dict:
+    if not isinstance(generated, dict):
+        return generated
+    skill_model = generated.get("skill_model")
+    if not isinstance(skill_model, dict):
+        return generated
+
+    normalized = dict(generated)
+    normalized_skill_model = dict(skill_model)
+    normalized_skill_model = floor_delivery_score(normalized_skill_model, normalized.get("repository_evaluations"))
+    normalized_skill_model["overall"] = normalize_overall_score(normalized_skill_model)
+    normalized_skill_model = scope_overall_score(normalized_skill_model, normalized.get("career_stage"))
+    normalized["skill_model"] = normalized_skill_model
+    return normalized
 
 
 def scored_dimension_schema(extra_properties: dict | None = None) -> dict:
@@ -119,8 +232,10 @@ ANALYSIS_SCHEMA = {
                         "score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
                         "confidence": {"type": "string", "enum": CONFIDENCE_LEVELS},
                         "percentile_note": {"type": "string"},
+                        "scope_stage": {"type": "string", "enum": ["student", "new_grad", "early", "mid", "senior", "unknown"]},
+                        "scope_label": {"type": "string"},
                     },
-                    "required": ["score", "confidence", "percentile_note"],
+                    "required": ["score", "confidence", "percentile_note", "scope_stage", "scope_label"],
                 },
             },
             "required": ["code_quality", "delivery", "algorithms", "overall"],
@@ -182,6 +297,18 @@ CARDINAL RULES
 - If evidence is missing, say what is missing and what it would change. Missing evidence is not a failing grade; it is an honest gap.
 - Null scores mean insufficient evidence. Never return 0 when data is absent. 0 is a measurement. null is an absence of measurement.
 
+EVALUATION WORKFLOW
+- First identify the strongest evidence available for each dimension: code context for code quality, activity plus completed work for delivery, and repo DSA or LeetCode for algorithms.
+- Then judge whether the signal is strong, mixed, weak, or absent. Weak signal should lower scores instead of being averaged away.
+- If the prompt contains noisy or generated artifacts, ignore them unless they are part of a specific engineering choice worth noting.
+- If the repo is mostly scaffolding, lockfiles, cache directories, generated code, or empty shells, treat that as weak signal and say so explicitly.
+
+EVIDENCE HIERARCHY
+- Highest: actual code context, architecture, tests, file structure, and repo-specific implementation details.
+- Medium: repository metadata such as descriptions, language, stars, forks, and commit history.
+- Lower: LeetCode and other external practice stats, which should support but not dominate the evaluation.
+- Lowest: noisy paths, generated files, cache folders, and dependency artifacts.
+
 CAREER STAGE CONTEXT
 Read the career_stage object before writing anything. Your framing depends on it.
 - student/new_grad: evaluate relative to peers at this stage, not working engineers. Coursework repos are valid learning evidence. Do not penalize expected lack of production experience. Recruiter copy should fit internship or new grad roles.
@@ -192,9 +319,15 @@ COURSEWORK REPO POLICY
 Coursework-looking repositories are learning evidence. Assess code cleanliness, concept understanding, whether the developer went beyond minimum assignment work, and progression across repos. Do not penalize coursework repos for lacking production architecture.
 
 ALGORITHMS SIGNAL POLICY
-LeetCode is one algorithms source, not the only source. If LeetCode is absent or weak, scan selected repository names, descriptions, README text, structure, and key files for DSA evidence such as graph/tree/heap/dp/trie/sort/bfs/dfs, algorithms directories, competitive programming, Advent of Code, CS coursework, complexity notes, or custom algorithm implementations.
-If repo-based DSA evidence exists, set algorithms.source to "repo_evidence" or "both", score from that evidence, and cite it. Do not penalize LeetCode absence when equivalent repo evidence exists.
+LeetCode is only a supporting signal. Repo evidence, code context, and project quality should dominate the algorithms assessment, especially when LeetCode is absent, weak, or generic.
+If LeetCode is absent or weak, scan selected repository names, descriptions, README text, structure, and key files for DSA evidence such as graph/tree/heap/dp/trie/sort/bfs/dfs, algorithms directories, competitive programming, Advent of Code, CS coursework, complexity notes, or custom algorithm implementations.
+If repo-based DSA evidence exists, set algorithms.source to "repo_evidence" or "both", score from that evidence, and cite it. Do not over-reward LeetCode-only signal when repo evidence is thin or absent.
 If no algorithms signal exists, set algorithms.score to null, algorithms.source to "insufficient", and explain that no algorithms signal was found in LeetCode or repositories.
+
+NEGATIVE SIGNAL POLICY
+- Do not materially penalize general repo hygiene issues such as build artifacts, cache directories, generated files, or dependency folders. Treat them as neutral unless they are directly relevant to a code quality observation.
+- Only committed env/secrets files should be treated as hygiene warnings, and those warnings should be narrow and specific.
+- If committed env files exist, mention them as a caution flag; do not let them dominate the score unless they are the clearest evidence in the repo.
 
 CODE QUALITY SCORING
 Only score code_quality when selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
@@ -202,10 +335,20 @@ Return one repository_evaluation object per repository with code context. If no 
 If selected_repository_code_context_omissions is non-empty, treat those repositories as omitted due prompt budget constraints, not as missing user signal.
 
 SCORING HEURISTICS
-- algorithms: strong LeetCode plus repo DSA -> 85-100; strong LeetCode alone -> 70-85; moderate LeetCode plus strong repo DSA -> 70-85; repo-only strong DSA -> 55-75; weak/minor signal -> 30-50; no signal -> null.
+- algorithms: strong LeetCode plus repo DSA -> 80-95; strong LeetCode alone -> 60-75; moderate LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor signal -> 25-45; no signal -> null.
+- code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; poor architecture, weak projects, or generated-artifact-heavy repos should drop below the middle band; metadata only -> null.
 - code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; metadata only -> null.
-- delivery: active commits under 90 days plus multiple projects/completions -> 70-100; moderate activity -> 40-70; low/dormant -> 20-40; no commit data -> null.
-- overall: weighted average of non-null dimensions: code_quality 0.40, delivery 0.35, algorithms 0.25. If fewer than two dimensions have scores, overall.score = null.
+- delivery: active commits under 90 days plus multiple projects/completions -> 70-100; 3+ end-to-end systems should not score below 78; moderate activity -> 40-70; low/dormant -> 20-40; no commit data -> null.
+- overall: weighted average of non-null dimensions: code_quality 0.45, delivery 0.40, algorithms 0.15. If fewer than two dimensions have scores, overall.score = null.
+
+SCORING ANCHORS
+- Treat architecture problems as first-class issues: missing boundaries, ad hoc coupling, lack of tests, or weak separation of concerns should lower code_quality even if the repo has many files.
+- Treat polished boilerplate or auto-generated structure as low signal unless the developer made clear engineering choices on top of it.
+- Treat LeetCode as evidence of algorithm practice, not system design, code quality, or product maturity.
+- Treat strong repo-based DSA as a top-tier algorithms signal even when LeetCode is absent; that should commonly land in the 80s when the repo evidence is clear and specific.
+- Treat 3 or more end-to-end systems as a strong delivery signal; delivery.score should be floored at 78 when that evidence is present.
+- Treat live, deployed, actively maintained, or otherwise production-shaped projects as system-tier repositories.
+- Treat commit count as activity only; do not assume strong delivery from raw commit volume if the work is repetitive, generated, or trivial.
 
 OUTPUT REQUIREMENTS
 - summary: 2-4 evidence-backed sentences calibrated to career stage. Do not open with the developer's name.
@@ -219,7 +362,7 @@ OUTPUT REQUIREMENTS
 - recruiter_copy: one honest polished paragraph, calibrated to career stage, that also includes a clear recommendation to the recruiter about the candidate's technical ability and the kinds of roles they should be considered for.
 
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
-- Provide a clear, human-readable analysis paragraph intended for the developer as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph. Include an explicit recruiter recommendation sentence that names the technical ability level and the roles they should be considered for.
+- Provide a clear, human-readable analysis paragraph intended for the recruiter as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph. Include an explicit recruiter recommendation sentence that names the technical ability level and the roles they should be considered for.
 - After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
     COMPETENCE_RANKING: Code Quality — Proficient (78); Delivery — Developing (62); Algorithms — Strong (85).
 - For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
@@ -604,19 +747,37 @@ def extract_json_response(text: str) -> dict:
     return json.loads(cleaned_text)
 
 
+def extract_anthropic_text(response) -> str:
+    response_text = getattr(response, "text", None)
+    if isinstance(response_text, str) and response_text.strip():
+        return response_text
+
+    content = getattr(response, "content", None) or []
+    text_blocks = []
+    for block in content:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                text_blocks.append(str(block.get("text", "")))
+            continue
+        if getattr(block, "type", "") == "text":
+            text_blocks.append(str(getattr(block, "text", "")))
+    return "".join(text_blocks)
+
+
 def generate_with_anthropic(payload: dict) -> dict:
     settings = get_settings()
     if not settings.anthropic_api_key:
         return fallback_analysis(payload)
 
     client = Anthropic(api_key=settings.anthropic_api_key)
+    user_prompt = build_evaluation_input(payload)
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=4096,
         system=EVALUATION_INSTRUCTIONS,
-        messages=[{"role": "user", "content": build_evaluation_input(payload)}],
+        messages=[{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
     )
-    text_content = "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
+    text_content = extract_anthropic_text(response)
     return extract_json_response(text_content)
 
 
@@ -624,8 +785,8 @@ def generate_analysis(payload: dict) -> dict:
     settings = get_settings()
     provider: Literal["openai", "anthropic"] = settings.analysis_provider
     if provider == "anthropic":
-        return generate_with_anthropic(payload)
-    return generate_with_openai(payload)
+        return normalize_generated_analysis(generate_with_anthropic(payload))
+    return normalize_generated_analysis(generate_with_openai(payload))
 
 
 def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> GeneratedEvaluation:

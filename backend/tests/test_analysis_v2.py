@@ -2,14 +2,19 @@ from types import SimpleNamespace
 
 from app.services.analysis import (
     ANALYSIS_SCHEMA,
+    EVALUATION_INSTRUCTIONS,
     assess_signal_completeness,
     build_analysis_payload,
     fallback_analysis,
     generate_analysis,
+    generate_with_anthropic,
     infer_career_stage,
+    extract_anthropic_text,
     legacy_project_complexity_notes,
     legacy_skill_model,
     limit_code_context_for_prompt,
+    floor_delivery_score,
+    normalize_overall_score,
 )
 
 
@@ -191,3 +196,98 @@ def test_generate_analysis_routes_to_anthropic(monkeypatch):
     result = generate_analysis({"summary": "payload"})
 
     assert result["provider"] == "anthropic"
+
+
+def test_generate_with_anthropic_sends_text_block_message(monkeypatch):
+    captured = {}
+
+    class Settings:
+        anthropic_api_key = "test-key"
+        anthropic_model = "claude-sonnet-4-20250514"
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text='{"ok": true}')])
+
+    class FakeAnthropic:
+        def __init__(self, api_key):
+            assert api_key == "test-key"
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr("app.services.analysis.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.services.analysis.Anthropic", FakeAnthropic)
+    monkeypatch.setattr("app.services.analysis.extract_json_response", lambda text: {"ok": True, "text": text})
+    monkeypatch.setattr("app.services.analysis.build_evaluation_input", lambda payload: "prompt body")
+
+    result = generate_with_anthropic({"summary": "payload"})
+
+    assert captured["model"] == "claude-sonnet-4-20250514"
+    assert captured["max_tokens"] == 4096
+    assert captured["system"] == EVALUATION_INSTRUCTIONS
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt body"}]}]
+    assert result["ok"] is True
+
+
+def test_extract_anthropic_text_prefers_native_text_property():
+    response = SimpleNamespace(text='{"ok": true}', content=[SimpleNamespace(type="text", text='{"ignored": true}')])
+
+    assert extract_anthropic_text(response) == '{"ok": true}'
+
+
+def test_extract_anthropic_text_joins_text_blocks_when_native_text_missing():
+    response = SimpleNamespace(
+        content=[
+            SimpleNamespace(type="text", text='{"ok": '),
+            SimpleNamespace(type="text", text='true}'),
+        ]
+    )
+
+    assert extract_anthropic_text(response) == '{"ok": true}'
+
+
+def test_normalize_overall_score_reweights_algorithms_lower():
+    skill_model = {
+        "code_quality": {"score": 80},
+        "delivery": {"score": 70},
+        "algorithms": {"score": 95},
+        "overall": {"score": 999, "confidence": "low", "percentile_note": ""},
+    }
+
+    overall = normalize_overall_score(skill_model)
+
+    assert overall["score"] == 78.8
+    assert overall["confidence"] == "high"
+
+
+def test_floor_delivery_score_raises_three_systems_to_minimum_78():
+    skill_model = {
+        "code_quality": {"score": 72},
+        "delivery": {"score": 61, "confidence": "low", "stage_context": "", "basis": [], "prose": ""},
+        "algorithms": {"score": 84},
+        "overall": {"score": 0, "confidence": "low", "percentile_note": ""},
+    }
+    repository_evaluations = [
+        {"complexity_tier": "system"},
+        {"complexity_tier": "system"},
+        {"complexity_tier": "system"},
+    ]
+
+    updated = floor_delivery_score(skill_model, repository_evaluations)
+
+    assert updated["delivery"]["score"] == 78
+    assert updated["delivery"]["confidence"] == "medium"
+
+
+def test_normalize_overall_score_requires_two_dimensions():
+    overall = normalize_overall_score(
+        {
+            "code_quality": {"score": 80},
+            "delivery": {"score": None},
+            "algorithms": {"score": None},
+            "overall": {"score": 50, "confidence": "high", "percentile_note": ""},
+        }
+    )
+
+    assert overall["score"] is None
+    assert overall["confidence"] == "low"
