@@ -229,6 +229,38 @@ def test_generate_with_anthropic_sends_text_block_message(monkeypatch):
     assert result["ok"] is True
 
 
+def test_build_payload_includes_rag_and_temporal(monkeypatch):
+    # Ensure build_analysis_payload accepts rag_context and includes temporal_signals
+    user = SimpleNamespace(name="Ada", headline="Builder", career_stage_override=None)
+    repo = SimpleNamespace(
+        full_name="ada/app",
+        description="A project",
+        language="Python",
+        stars=1,
+        forks=0,
+        commit_count=40,
+        all_time_commit_count=140,
+        pushed_at=None,
+        selected_for_analysis=True,
+        created_at=datetime.utcnow(),
+        id="r1",
+    )
+    section = SimpleNamespace(
+        kind="project",
+        title="Compiler",
+        organization="School",
+        start_date="2025-01",
+        end_date="2025-05",
+        description="Built a parser",
+        url="https://example.com",
+    )
+    rag_context = {"architecture": []}
+    payload = build_analysis_payload(user, [repo], None, [section], [{"full_name": "ada/app", "readme": "", "structure_sample": [], "key_files": []}], rag_context=rag_context)
+
+    assert "rag_context" in payload and payload["rag_context"] == rag_context
+    assert "temporal_signals" in payload
+
+
 def test_extract_anthropic_text_prefers_native_text_property():
     response = SimpleNamespace(text='{"ok": true}', content=[SimpleNamespace(type="text", text='{"ignored": true}')])
 
@@ -291,3 +323,25 @@ def test_normalize_overall_score_requires_two_dimensions():
 
     assert overall["score"] is None
     assert overall["confidence"] == "low"
+
+
+def test_compute_temporal_signals_empty():
+    from app.services.analysis import compute_temporal_signals
+
+    result = compute_temporal_signals([])
+    assert result["available"] is False
+
+
+def test_analyze_repo_architecture_detects_patterns():
+    from app.services.analysis import analyze_repo_architecture
+
+    context = {"structure_sample": [
+        "backend/app/services/auth.py", "backend/app/models/user.py",
+        "frontend/app/page.tsx", ".github/workflows/ci.yml",
+        "Dockerfile", "alembic/versions/001_initial.py", "tests/test_auth.py",
+    ]}
+    result = analyze_repo_architecture(context)
+    assert "frontend_backend_split" in result["patterns_detected"]
+    assert "layered_architecture" in result["patterns_detected"]
+    assert "has_ci" in result["patterns_detected"]
+    assert "has_docker" in result["patterns_detected"]

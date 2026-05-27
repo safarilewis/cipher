@@ -130,3 +130,25 @@ class GeneratedEvaluation(Base):
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# RAG storage for code chunks (pgvector)
+try:
+    from pgvector.sqlalchemy import Vector  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - editable build environments may not have pgvector installed yet
+    Vector = None
+
+
+class CodeChunk(Base):
+    __tablename__ = "code_chunks"
+    __table_args__ = (UniqueConstraint("repo_id", "file_path", "chunk_index", name="uq_repo_file_chunk"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    repo_id: Mapped[str] = mapped_column(ForeignKey("github_repositories.id"), index=True)
+    analysis_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column((Vector(1536) if Vector is not None else JSON), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

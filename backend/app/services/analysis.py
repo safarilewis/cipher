@@ -11,6 +11,10 @@ from app.core.config import get_settings
 from app.models import AnalysisStatus, GeneratedEvaluation, GitHubRepository, LeetCodeSnapshot, ProfileSection, User
 from app.services.github import fetch_repo_code_context, get_github_access_token
 from app.services.scoring import github_quality_signals, leetcode_signals, profile_signals
+from app.services.embeddings import embed_repo_files, build_rag_context
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 CAREER_STAGES = {"student", "new_grad", "early", "mid", "senior"}
@@ -217,6 +221,18 @@ ANALYSIS_SCHEMA = {
             },
             "required": ["code_quality", "delivery", "algorithms", "profile_depth"],
         },
+        "temporal_signals": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "available": {"type": "boolean"},
+                "evolution_narrative": {"type": "string"},
+                "language_shifts": {"type": "string"},
+                "complexity_trend": {"type": "string", "enum": ["growing", "steady", "declining", "insufficient_data", "unknown"]},
+                "active_years": {"type": "number"},
+            },
+            "required": ["available", "evolution_narrative", "language_shifts", "complexity_trend", "active_years"],
+        },
         "summary": {"type": "string"},
         "skill_model": {
             "type": "object",
@@ -250,6 +266,8 @@ ANALYSIS_SCHEMA = {
                     "language": {"type": ["string", "null"]},
                     "complexity_tier": {"type": "string", "enum": ["prototype", "project", "system"]},
                     "code_quality_notes": {"type": "string"},
+                    "architecture_signals_observed": {"type": "array", "items": {"type": "string"}},
+                    "specific_code_references": {"type": "array", "items": {"type": "string"}},
                     "architecture_notes": {"type": "string"},
                     "maturity_signals": {"type": "array", "items": {"type": "string"}},
                     "dsa_evidence": {"type": ["string", "null"]},
@@ -261,6 +279,8 @@ ANALYSIS_SCHEMA = {
                     "language",
                     "complexity_tier",
                     "code_quality_notes",
+                    "architecture_signals_observed",
+                    "specific_code_references",
                     "architecture_notes",
                     "maturity_signals",
                     "dsa_evidence",
@@ -280,6 +300,7 @@ ANALYSIS_SCHEMA = {
         "summary",
         "skill_model",
         "repository_evaluations",
+        "temporal_signals",
         "strengths",
         "growth_areas",
         "evidence_highlights",
@@ -333,6 +354,34 @@ CODE QUALITY SCORING
 Only score code_quality when selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
 Return one repository_evaluation object per repository with code context. If no code context is available, return an empty array.
 If selected_repository_code_context_omissions is non-empty, treat those repositories as omitted due prompt budget constraints, not as missing user signal.
+
+TEMPORAL ANALYSIS
+- temporal_signals tracks how the developer has evolved.
+- Strong examples:
+    - "Started in C during coursework, transitioned to Python and TypeScript over the last 18 months."
+    - "Consistent Python usage across 3 years with growing project complexity."
+- Frame language transitions as growth, not weakness.
+- Populate evolution_narrative as 1-2 sentences; language_shifts as a one-liner.
+- Reference temporal signals in summary and recruiter_copy.
+
+ARCHITECTURE SIGNAL POLICY
+- Each code_context includes architecture_signals from the actual file tree.
+- Populate architecture_signals_observed with concrete patterns: ["layered architecture", "CI workflows", "Docker setup", "migrations"].
+- Architecture observations push delivery and code_quality scores upward when production patterns are present.
+- Cross-reference with temporal_signals — architectural maturity over time is a strong delivery signal.
+
+RAG CONTEXT POLICY
+- rag_context provides dimension-specific code chunks via semantic search.
+- rag_context.architecture / code_quality / algorithms / tests each hold the top retrieved chunks.
+- Cite specific files from rag_context in repository_evaluations and skill_model prose. RAG chunks are higher-priority evidence than structure_sample paths.
+- If rag_context for a dimension is empty, fall back to selected_repository_code_context, but note the gap in confidence.
+
+DEEPER CODE REASONING
+- code_quality_notes and architecture_notes must cite specific files or patterns — not generic praise.
+- Weak (AVOID): "Clean code structure", "Good separation of concerns."
+- Strong (PREFER): "auth.py uses JWT with bcrypt password hashing; main.py wires FastAPI with dependency injection."
+- Populate specific_code_references with the file paths cited.
+- One concrete architectural choice per repo in architecture_notes. Skip if not concrete.
 
 SCORING HEURISTICS
 - algorithms: strong LeetCode plus repo DSA -> 80-95; strong LeetCode alone -> 60-75; moderate LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor signal -> 25-45; no signal -> null.
@@ -557,6 +606,159 @@ def assess_signal_completeness(input_payload: dict) -> dict:
     }
 
 
+def compute_temporal_signals(repositories: list[GitHubRepository]) -> dict:
+    """Extract evolution signals across the developer's repo history."""
+    repos_with_dates = [r for r in repositories if getattr(r, "created_at", None)]
+    if not repos_with_dates:
+        return {
+            "available": False,
+            "language_timeline": [],
+            "abandoned_languages": [],
+            "adopted_languages": [],
+            "consistent_languages": [],
+            "complexity_trend": "unknown",
+            "first_repo_date": None,
+            "latest_activity_date": None,
+            "active_years": 0,
+        }
+
+    sorted_repos = sorted(repos_with_dates, key=lambda r: r.created_at)
+
+    language_timeline = [
+        {
+            "date": repo.created_at.isoformat(),
+            "language": repo.language,
+            "repo": repo.full_name,
+            "commits": repo.commit_count or 0,
+        }
+        for repo in sorted_repos
+        if repo.language
+    ]
+
+    lang_first_seen: dict[str, datetime] = {}
+    lang_last_seen: dict[str, datetime] = {}
+    from collections import defaultdict
+
+    lang_repo_count: dict[str, int] = defaultdict(int)
+
+    for repo in sorted_repos:
+        if not repo.language:
+            continue
+        lang = repo.language
+        date = getattr(repo, "pushed_at", None) or repo.created_at
+        if lang not in lang_first_seen:
+            lang_first_seen[lang] = repo.created_at
+        lang_last_seen[lang] = max(lang_last_seen.get(lang, date), date)
+        lang_repo_count[lang] += 1
+
+    now = datetime.utcnow()
+    one_year_ago = now - timedelta(days=365)
+    two_years_ago = now - timedelta(days=730)
+
+    abandoned_languages = []
+    adopted_languages = []
+    consistent_languages = []
+
+    for lang, last_seen in lang_last_seen.items():
+        first_seen = lang_first_seen[lang]
+        repo_count = lang_repo_count[lang]
+        if last_seen < one_year_ago and first_seen < two_years_ago:
+            abandoned_languages.append({
+                "language": lang,
+                "last_used": last_seen.isoformat(),
+                "repo_count": repo_count,
+            })
+        elif first_seen > one_year_ago:
+            adopted_languages.append({
+                "language": lang,
+                "first_used": first_seen.isoformat(),
+                "repo_count": repo_count,
+            })
+        elif repo_count >= 2 and last_seen > one_year_ago:
+            consistent_languages.append({"language": lang, "repo_count": repo_count})
+
+    if len(sorted_repos) >= 3:
+        third = max(1, len(sorted_repos) // 3)
+        early = sorted_repos[:third]
+        recent = sorted_repos[-third:]
+        early_avg = sum((r.commit_count or 0) for r in early) / len(early)
+        recent_avg = sum((r.commit_count or 0) for r in recent) / len(recent)
+        if recent_avg > early_avg * 1.5:
+            complexity_trend = "growing"
+        elif recent_avg < early_avg * 0.5:
+            complexity_trend = "declining"
+        else:
+            complexity_trend = "steady"
+    else:
+        complexity_trend = "insufficient_data"
+
+    first_repo = sorted_repos[0].created_at
+    latest_activity = max((getattr(r, "pushed_at", None) or r.created_at) for r in sorted_repos)
+    active_years = round((latest_activity - first_repo).days / 365, 1)
+
+    return {
+        "available": True,
+        "language_timeline": language_timeline[-30:],
+        "abandoned_languages": abandoned_languages,
+        "adopted_languages": adopted_languages,
+        "consistent_languages": consistent_languages,
+        "complexity_trend": complexity_trend,
+        "first_repo_date": first_repo.isoformat(),
+        "latest_activity_date": latest_activity.isoformat(),
+        "active_years": active_years,
+    }
+
+
+def analyze_repo_architecture(code_context: dict) -> dict:
+    """Extract architectural signals from a repo's file structure."""
+    structure = code_context.get("structure_sample") or []
+    if not structure:
+        return {"available": False}
+
+    paths = [p.lower() for p in structure]
+
+    patterns = {
+        "monorepo": any("packages/" in p or "apps/" in p for p in paths),
+        "frontend_backend_split": (
+            any("frontend" in p for p in paths) and any("backend" in p for p in paths)
+        ),
+        "layered_architecture": (
+            any("services/" in p for p in paths) and any("models/" in p for p in paths)
+        ),
+        "api_first": any(
+            "api/" in p or "routes/" in p or "endpoints/" in p for p in paths
+        ),
+        "has_tests": any("test" in p or "spec" in p for p in paths),
+        "has_migrations": any("migration" in p or "alembic" in p for p in paths),
+        "has_ci": any(".github/workflows" in p or ".gitlab-ci" in p for p in paths),
+        "has_docker": any("dockerfile" in p or "docker-compose" in p for p in paths),
+        "has_docs": any(p.endswith(".md") and "readme" not in p for p in paths),
+        "domain_driven": any("domain/" in p or "entities/" in p for p in paths),
+    }
+
+    framework_hints = []
+    if any("fastapi" in p or "main.py" in p for p in paths):
+        framework_hints.append("python_backend")
+    if any("next.config" in p or "app/page.tsx" in p for p in paths):
+        framework_hints.append("nextjs")
+    if any("package.json" in p for p in paths):
+        framework_hints.append("node")
+    if any("pyproject.toml" in p or "requirements.txt" in p for p in paths):
+        framework_hints.append("python")
+    if any("cargo.toml" in p for p in paths):
+        framework_hints.append("rust")
+    if any("go.mod" in p for p in paths):
+        framework_hints.append("go")
+
+    return {
+        "available": True,
+        "patterns_detected": [k for k, v in patterns.items() if v],
+        "framework_hints": framework_hints,
+        "file_count": len(structure),
+        "max_depth": max((p.count("/") for p in paths), default=0),
+    }
+
+
 def metadata_complexity_hint(selected_repositories: list[dict]) -> str:
     if not selected_repositories:
         return "insufficient_data"
@@ -573,6 +775,7 @@ def build_analysis_payload(
     selected_code_context: list[dict] | None = None,
     selected_code_context_omissions: list[dict] | None = None,
     selected_code_context_total: int | None = None,
+    rag_context: dict | None = None,
 ) -> dict:
     selected_repositories = [
         {
@@ -610,9 +813,11 @@ def build_analysis_payload(
             for section in sections
         ],
         "manual_profile": profile_signals(sections),
+        "rag_context": rag_context or {},
     }
     payload["career_stage"] = infer_career_stage(payload, user.career_stage_override)
     payload["signal_completeness"] = assess_signal_completeness(payload)
+    payload["temporal_signals"] = compute_temporal_signals(repositories)
     return payload
 
 
@@ -627,6 +832,13 @@ def fallback_analysis(payload: dict) -> dict:
             "Evaluation generated in fallback mode. Connect an OpenAI API key for full stage-aware code, delivery, "
             "and algorithms analysis."
         ),
+        "temporal_signals": {
+            "available": False,
+            "evolution_narrative": "Temporal analysis unavailable in fallback mode.",
+            "language_shifts": "",
+            "complexity_trend": "unknown",
+            "active_years": 0,
+        },
         "skill_model": {
             "code_quality": {"score": None, "confidence": "low", "stage_context": "", "basis": [], "prose": "Fallback mode cannot evaluate code quality."},
             "delivery": {"score": None, "confidence": "low", "stage_context": "", "basis": [], "prose": "Fallback mode cannot score delivery.", "trend": "unknown"},
@@ -807,6 +1019,58 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             except Exception as exc:
                 selected_code_context.append({"full_name": repo.full_name, "error": str(exc)})
 
+        # Attach architecture signals to each successful code context
+        for context in selected_code_context:
+            if not context or "error" in context:
+                continue
+            try:
+                context["architecture_signals"] = analyze_repo_architecture(context)
+            except Exception as exc:
+                logger.warning("Architecture analysis failed for %s: %s", context.get("full_name"), exc)
+
+        # Embed code context asynchronously-friendly: schedule or run embedding in batches.
+        # For now, attempt to embed synchronously but guard against failures so analysis continues.
+        # Enqueue embedding jobs instead of running them inline when Redis is configured.
+        redis_url = getattr(get_settings(), "redis_url", None)
+        if redis_url:
+            try:
+                from redis import Redis
+                from rq import Queue
+
+                redis_conn = Redis.from_url(redis_url)
+                q = Queue("embeddings", connection=redis_conn)
+                for repo, context in zip(selected_repositories, selected_code_context):
+                    if not context or "error" in context:
+                        continue
+                    q.enqueue("app.workers.embeddings_worker.enqueue_embedding_job", user.id, repo.id, evaluation.id, context)
+            except Exception:
+                logger.exception("Failed to enqueue embedding jobs; falling back to inline embedding")
+                # fallback to inline embedding
+                for repo, context in zip(selected_repositories, selected_code_context):
+                    if not context or "error" in context:
+                        continue
+                    try:
+                        embed_repo_files(db=db, user_id=user.id, repo_id=repo.id, analysis_id=evaluation.id, code_context=context)
+                    except Exception as exc:  # don't block analysis on embedding errors
+                        logger.warning("Embedding failed for %s: %s", repo.full_name, exc)
+        else:
+            # No Redis configured: run inline but guard against exceptions
+            for repo, context in zip(selected_repositories, selected_code_context):
+                if not context or "error" in context:
+                    continue
+                try:
+                    embed_repo_files(db=db, user_id=user.id, repo_id=repo.id, analysis_id=evaluation.id, code_context=context)
+                except Exception as exc:  # don't block analysis on embedding errors
+                    logger.warning("Embedding failed for %s: %s", repo.full_name, exc)
+
+        # Build rag_context from stored chunks (if any)
+        repo_id_to_name = {repo.id: repo.full_name for repo in selected_repositories}
+        try:
+            rag_context = build_rag_context(db=db, user_id=user.id, analysis_id=evaluation.id, repo_id_to_full_name=repo_id_to_name)
+        except Exception as exc:
+            logger.warning("Failed to build rag_context: %s", exc)
+            rag_context = {}
+
         prompt_code_context, prompt_omissions = limit_code_context_for_prompt(
             selected_repositories,
             [context for context in selected_code_context if "error" not in context],
@@ -828,6 +1092,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             prompt_code_context,
             prompt_omissions,
             selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+            rag_context=rag_context,
         )
 
         try:
@@ -847,6 +1112,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 retry_context,
                 retry_omissions,
                 selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+                rag_context=rag_context,
             )
             generated = generate_analysis(retry_payload)
 

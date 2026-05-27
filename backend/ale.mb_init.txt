@@ -1,0 +1,10 @@
+Alembic is not configured in this project. To create an Alembic revision for the SQL stub:
+
+1. Install alembic: `pip install alembic`
+2. Initialize alembic in the backend folder: `alembic init backend/alembic`
+3. Configure `backend/alembic/env.py` to use `app.db.engine` or `DATABASE_URL`.
+4. Create a revision: `alembic revision --autogenerate -m "add code_chunks and vector index"`
+5. Edit the generated revision to add `op.create_table` for `code_chunks` and `op.create_extension('vector')` where appropriate.
+6. Run `alembic upgrade head` or add to CI.
+
+I can scaffold an actual Alembic revision file if you'd like.
