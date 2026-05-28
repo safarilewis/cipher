@@ -120,6 +120,7 @@ class GeneratedEvaluation(Base):
     skill_model_v2: Mapped[dict | None] = mapped_column(JSON)
     career_stage: Mapped[dict | None] = mapped_column(JSON)
     signal_completeness: Mapped[dict | None] = mapped_column(JSON)
+    profile_signal_snapshot: Mapped[dict | None] = mapped_column(JSON)
     repository_evaluations: Mapped[list | None] = mapped_column(JSON)
     strengths: Mapped[list | None] = mapped_column(JSON)
     growth_areas: Mapped[list | None] = mapped_column(JSON)

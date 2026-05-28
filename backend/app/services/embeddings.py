@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import List
 
 from openai import OpenAI
@@ -203,6 +204,15 @@ def build_profile_search_text(
         parts.append(user.name)
     if user.headline:
         parts.append(user.headline)
+
+    profile_signal = getattr(evaluation, "profile_signal_snapshot", None)
+    if isinstance(profile_signal, dict):
+        summary_for_search = profile_signal.get("summary_for_search")
+        if summary_for_search:
+            parts.append(str(summary_for_search))
+        parts.append("Developer profile signal:")
+        parts.append(json.dumps(profile_signal, ensure_ascii=False, sort_keys=True))
+
     if evaluation.summary:
         parts.append(evaluation.summary)
 

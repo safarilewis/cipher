@@ -155,6 +155,70 @@ def scored_dimension_schema(extra_properties: dict | None = None) -> dict:
     }
 
 
+HIRING_RECOMMENDATION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "decision": {"type": "string", "enum": ["recommend", "consider", "hold", "insufficient_evidence"]},
+        "best_fit_level": {"type": "string"},
+        "best_fit_roles": {"type": "array", "items": {"type": "string"}},
+        "strongest_hiring_signal": {"type": "string"},
+        "primary_verification_point": {"type": "string"},
+        "summary": {"type": "string"},
+        "confidence": {"type": "string", "enum": CONFIDENCE_LEVELS},
+    },
+    "required": [
+        "decision",
+        "best_fit_level",
+        "best_fit_roles",
+        "strongest_hiring_signal",
+        "primary_verification_point",
+        "summary",
+        "confidence",
+    ],
+}
+
+
+ROLE_FIT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "role": {"type": "string"},
+        "fit": {"type": "string", "enum": ["strong", "partial", "unsupported"]},
+        "level": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "gaps": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["role", "fit", "level", "evidence", "gaps"],
+}
+
+
+MANUAL_SECTION_EVALUATION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "kind": {"type": "string"},
+        "title": {"type": "string"},
+        "recruiter_value": {"type": "string", "enum": ["strong", "moderate", "limited", "unclear"]},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "verification_points": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["kind", "title", "recruiter_value", "evidence", "verification_points"],
+}
+
+
+INTERVIEW_QUESTION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "question": {"type": "string"},
+        "verifies": {"type": "string"},
+        "source": {"type": "string"},
+    },
+    "required": ["question", "verifies", "source"],
+}
+
+
 ANALYSIS_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -290,6 +354,11 @@ ANALYSIS_SCHEMA = {
         "strengths": {"type": "array", "items": {"type": "string"}},
         "growth_areas": {"type": "array", "items": {"type": "string"}},
         "evidence_highlights": {"type": "array", "items": {"type": "string"}},
+        "hiring_recommendation": HIRING_RECOMMENDATION_SCHEMA,
+        "role_fit": {"type": "array", "items": ROLE_FIT_SCHEMA},
+        "manual_section_evaluations": {"type": "array", "items": MANUAL_SECTION_EVALUATION_SCHEMA},
+        "interview_questions": {"type": "array", "items": INTERVIEW_QUESTION_SCHEMA},
+        "recruiter_risks": {"type": "array", "items": {"type": "string"}},
         "recruiter_copy": {"type": "string"},
     },
     "required": [
@@ -302,6 +371,11 @@ ANALYSIS_SCHEMA = {
         "strengths",
         "growth_areas",
         "evidence_highlights",
+        "hiring_recommendation",
+        "role_fit",
+        "manual_section_evaluations",
+        "interview_questions",
+        "recruiter_risks",
         "recruiter_copy",
     ],
 }
@@ -320,12 +394,13 @@ EVALUATION WORKFLOW
 - First identify the strongest evidence available for each dimension: code context for code quality, activity plus completed work for delivery, and repo DSA plus provided LeetCode data for algorithms.
 - Then judge whether the signal is strong, mixed, weak, or absent. Weak signal should lower scores instead of being averaged away.
 - For delivery, use commit counts, pushed_at recency, and recent commit messages/change summaries when available. Commit volume is activity evidence, but recent messages reveal whether work reflects meaningful product changes, maintenance, experiments, or trivial churn.
+- Treat manual profile sections as first-class recruiter evidence. Evaluate education, experience, projects, bootcamps, and certifications for relevance, recency, credibility/detail level, consistency with GitHub evidence, and missing context a recruiter should verify.
 - If the prompt contains noisy or generated artifacts, ignore them unless they are part of a specific engineering choice worth noting.
 - If the repo is mostly scaffolding, lockfiles, cache directories, generated code, or empty shells, treat that as weak signal and say so explicitly.
 
 EVIDENCE HIERARCHY
 - Highest: actual code context, architecture, tests, file structure, and repo-specific implementation details.
-- Medium: repository metadata such as descriptions, language, stars, forks, and commit history.
+- Medium: manual profile sections with concrete descriptions, repository metadata such as descriptions, language, stars, forks, and commit history.
 - Lower: provided LeetCode and other external practice stats, which should support but not dominate the evaluation.
 - Lowest: noisy paths, generated files, cache folders, and dependency artifacts.
 
@@ -384,6 +459,14 @@ DEEPER CODE REASONING
 - Populate specific_code_references with the file paths cited.
 - One concrete architectural choice per repo in architecture_notes. Skip if not concrete.
 
+RECRUITER DECISION AID
+- The output should help a recruiter decide whether to interview the candidate, for which role, and what to verify.
+- hiring_recommendation.decision must be one of: recommend, consider, hold, insufficient_evidence. Use recommend only when the evidence clearly supports an interview for the named level/role family. Use consider for promising but incomplete evidence. Use hold for meaningful concerns. Use insufficient_evidence when the profile lacks enough signal.
+- role_fit must map evidence to likely role fits such as internship, new grad, frontend, backend, full-stack, data, infrastructure, systems, or mobile. Do not infer role fit from languages alone; cite projects, files, commits, profile sections, or LeetCode stats when present.
+- recruiter_risks should be recruiter-relevant verification points, not nitpicks: thin code evidence, stale activity, mostly coursework/tutorial work, unclear ownership, no test/deployment evidence, missing work history, or weak role alignment.
+- interview_questions must include 3-5 tailored questions. Each question should verify a specific claim, repo, manual section, or gap.
+- For every major claim, distinguish observed evidence from interpretation. Never present interpretation as fact.
+
 SCORING HEURISTICS
 - algorithms: strong provided LeetCode plus repo DSA -> 80-95; strong provided LeetCode alone -> 60-75; moderate provided LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor available signal -> 25-45; no available signal -> null.
 - code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; poor architecture, weak projects, or generated-artifact-heavy repos should drop below the middle band; metadata only -> null.
@@ -409,10 +492,15 @@ OUTPUT REQUIREMENTS
 - growth_areas: 2-4 constructive bullets. For students, do not list lack of production experience as a weakness.
 - repository_evaluations: one object per repository with code context; empty array when no code context exists.
 - evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles, each using APA-like parenthetical in-text citations such as `(repo-name, path/to/file.py)`. Use LeetCode citations only when the payload includes LeetCode data.
-- recruiter_copy: one honest polished paragraph, calibrated to career stage, that also includes a clear recommendation to the recruiter about the candidate's technical ability and the kinds of roles they should be considered for.
+- manual_section_evaluations: one object for each manual section. If a section has little detail, say its recruiter value is limited or unclear and give a verification point.
+- hiring_recommendation: concise hiring decision aid with best-fit level, best-fit roles, strongest hiring signal, primary verification point, and confidence.
+- role_fit: 3-6 role fits, each marked strong, partial, or unsupported with evidence and gaps.
+- interview_questions: 3-5 recruiter screening or technical follow-up questions tailored to the evidence.
+- recruiter_risks: 2-5 concrete verification points. Keep them fair and evidence-based.
+- recruiter_copy: an honest, polished hiring brief calibrated to career stage. Use this structure in plain text: Recommendation: ... Best-fit roles: ... Why interview: ... Verify: ... Evidence basis: ... Then include COMPETENCE_RANKING on one line.
 
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
-- Provide a clear, human-readable analysis paragraph intended for the recruiter as the first part of `recruiter_copy`. This should be 3-6 plain-language sentences summarizing the candidate's strengths, most important growth areas, and an overall takeaway — avoid JSON or list markup inside this paragraph. Include an explicit recruiter recommendation sentence that names the technical ability level and the roles they should be considered for.
+- Provide a clear, human-readable hiring brief intended for the recruiter as the first part of `recruiter_copy`. It should answer: should this person be interviewed, for what role/level, why, and what should be verified. Avoid JSON or list markup inside this paragraph.
 - After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
     COMPETENCE_RANKING: Code Quality — Proficient (78); Delivery — Developing (62); Algorithms — Strong (85).
 - For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
@@ -600,7 +688,16 @@ def assess_signal_completeness(input_payload: dict) -> dict:
 
 def compute_temporal_signals(repositories: list[GitHubRepository]) -> dict:
     """Extract evolution signals across the developer's repo history."""
-    repos_with_dates = [r for r in repositories if getattr(r, "created_at", None)]
+    def repo_date(repo: GitHubRepository) -> datetime | None:
+        raw = getattr(repo, "raw", None)
+        created_at = raw.get("created_at") if isinstance(raw, dict) else None
+        if isinstance(created_at, str):
+            parsed = parse_profile_date(created_at[:10])
+            if parsed:
+                return parsed
+        return getattr(repo, "pushed_at", None) or getattr(repo, "created_at", None)
+
+    repos_with_dates = [r for r in repositories if repo_date(r)]
     if not repos_with_dates:
         return {
             "available": False,
@@ -614,11 +711,11 @@ def compute_temporal_signals(repositories: list[GitHubRepository]) -> dict:
             "active_years": 0,
         }
 
-    sorted_repos = sorted(repos_with_dates, key=lambda r: r.created_at)
+    sorted_repos = sorted(repos_with_dates, key=lambda r: repo_date(r) or datetime.max)
 
     language_timeline = [
         {
-            "date": repo.created_at.isoformat(),
+            "date": (repo_date(repo) or datetime.utcnow()).isoformat(),
             "language": repo.language,
             "repo": repo.full_name,
             "commits": repo.commit_count or 0,
@@ -637,9 +734,12 @@ def compute_temporal_signals(repositories: list[GitHubRepository]) -> dict:
         if not repo.language:
             continue
         lang = repo.language
-        date = getattr(repo, "pushed_at", None) or repo.created_at
+        first_date = repo_date(repo)
+        if not first_date:
+            continue
+        date = getattr(repo, "pushed_at", None) or first_date
         if lang not in lang_first_seen:
-            lang_first_seen[lang] = repo.created_at
+            lang_first_seen[lang] = first_date
         lang_last_seen[lang] = max(lang_last_seen.get(lang, date), date)
         lang_repo_count[lang] += 1
 
@@ -684,8 +784,8 @@ def compute_temporal_signals(repositories: list[GitHubRepository]) -> dict:
     else:
         complexity_trend = "insufficient_data"
 
-    first_repo = sorted_repos[0].created_at
-    latest_activity = max((getattr(r, "pushed_at", None) or r.created_at) for r in sorted_repos)
+    first_repo = repo_date(sorted_repos[0]) or datetime.utcnow()
+    latest_activity = max((getattr(r, "pushed_at", None) or repo_date(r) or first_repo) for r in sorted_repos)
     active_years = round((latest_activity - first_repo).days / 365, 1)
 
     return {
@@ -813,6 +913,167 @@ def build_analysis_payload(
     return payload
 
 
+def code_hygiene_signals(selected_code_context: list[dict]) -> dict:
+    paths: list[str] = []
+    env_paths: list[str] = []
+    generated_paths: list[str] = []
+    for context in selected_code_context:
+        paths.extend(str(path) for path in context.get("structure_sample") or [])
+        for key_file in context.get("key_files") or []:
+            path = str(key_file.get("path") or "")
+            if path:
+                paths.append(path)
+
+    lower_paths = [path.lower() for path in paths]
+    for path in paths:
+        lower = path.lower()
+        if ".env" in lower or "secret" in lower or "credentials" in lower:
+            env_paths.append(path)
+        if any(part in lower for part in ("node_modules/", "__pycache__/", ".next/", "dist/", "build/")):
+            generated_paths.append(path)
+
+    positives = []
+    if any("test" in path or "spec" in path for path in lower_paths):
+        positives.append("test files present")
+    if any(".github/workflows" in path or ".gitlab-ci" in path for path in lower_paths):
+        positives.append("CI workflow present")
+    if any("dockerfile" in path or "docker-compose" in path for path in lower_paths):
+        positives.append("containerization present")
+    if any("migration" in path or "alembic" in path for path in lower_paths):
+        positives.append("database migration structure present")
+    if any(path.endswith((".toml", ".json", ".yaml", ".yml")) for path in lower_paths):
+        positives.append("configuration files present")
+
+    return {
+        "available": bool(paths),
+        "positive_signals": positives,
+        "caution_signals": {
+            "committed_env_or_secret_paths": sorted(set(env_paths))[:20],
+            "generated_artifact_paths": sorted(set(generated_paths))[:20],
+        },
+        "files_observed": len(set(paths)),
+    }
+
+
+def delivery_signal_snapshot(payload: dict) -> dict:
+    github = payload.get("github") if isinstance(payload.get("github"), dict) else {}
+    selected = payload.get("selected_repositories_for_code_review") or []
+    recent_activity = [
+        {
+            "repo": repo.get("full_name"),
+            "pushed_at": repo.get("pushed_at"),
+            "recent_commits": repo.get("recent_commits", [])[:5],
+        }
+        for repo in selected
+    ]
+    return {
+        "total_commits": github.get("commits", 0),
+        "repository_count": github.get("repository_count", len(selected)),
+        "selected_repository_count": len(selected),
+        "recency": (payload.get("signal_completeness") or {}).get("delivery", {}).get("recency", "unknown"),
+        "recent_activity": recent_activity,
+    }
+
+
+def architecture_signal_snapshot(selected_code_context: list[dict]) -> list[dict]:
+    snapshots = []
+    for context in selected_code_context:
+        if not context or "error" in context:
+            continue
+        architecture = context.get("architecture_signals") if isinstance(context.get("architecture_signals"), dict) else {}
+        snapshots.append(
+            {
+                "repo": context.get("full_name", "unknown"),
+                "patterns": architecture.get("patterns_detected", []),
+                "framework_hints": architecture.get("framework_hints", []),
+                "file_count": architecture.get("file_count", 0),
+                "max_depth": architecture.get("max_depth", 0),
+            }
+        )
+    return snapshots
+
+
+def evidence_signal_snapshot(generated: dict, selected_code_context: list[dict]) -> dict:
+    repository_evaluations = generated.get("repository_evaluations") if isinstance(generated, dict) else []
+    cited_files = []
+    for repo_eval in repository_evaluations or []:
+        if isinstance(repo_eval, dict):
+            cited_files.extend(repo_eval.get("specific_code_references") or [])
+
+    observed_files = []
+    for context in selected_code_context:
+        for key_file in context.get("key_files") or []:
+            path = key_file.get("path")
+            if path:
+                observed_files.append({"repo": context.get("full_name", "unknown"), "path": path})
+
+    return {
+        "cited_files": sorted({str(path) for path in cited_files if path})[:50],
+        "observed_key_files": observed_files[:80],
+        "highlights": generated.get("evidence_highlights", []) if isinstance(generated, dict) else [],
+    }
+
+
+def build_profile_signal_snapshot(
+    user: User,
+    repositories: list[GitHubRepository],
+    sections: list[ProfileSection],
+    leetcode: LeetCodeSnapshot | None,
+    payload: dict,
+    generated: dict,
+    selected_code_context: list[dict],
+) -> dict:
+    skill_model = generated.get("skill_model") if isinstance(generated, dict) else {}
+    languages = sorted({repo.language for repo in repositories if repo.language})
+    manual_sections = [
+        {
+            "kind": section.kind,
+            "title": section.title,
+            "organization": section.organization,
+            "start_date": section.start_date,
+            "end_date": section.end_date,
+        }
+        for section in sections
+    ]
+    algorithms = {
+        "source": (skill_model.get("algorithms") or {}).get("source") if isinstance(skill_model, dict) else None,
+        "leetcode": leetcode_signals(leetcode) if leetcode is not None else None,
+        "prose": (skill_model.get("algorithms") or {}).get("prose") if isinstance(skill_model, dict) else "",
+    }
+    summary_parts = [
+        user.name or user.slug,
+        user.headline or "",
+        generated.get("summary", ""),
+        generated.get("recruiter_copy", ""),
+        "Languages: " + ", ".join(languages) if languages else "",
+        "Strengths: " + "; ".join(generated.get("strengths") or []),
+    ]
+
+    return {
+        "version": 1,
+        "profile": {"name": user.name, "slug": user.slug, "headline": user.headline},
+        "career_stage": generated.get("career_stage"),
+        "timeline": payload.get("temporal_signals", {}),
+        "languages": languages,
+        "manual_sections": manual_sections,
+        "code_hygiene": code_hygiene_signals(selected_code_context),
+        "architecture": architecture_signal_snapshot(selected_code_context),
+        "delivery": delivery_signal_snapshot(payload),
+        "algorithms": algorithms,
+        "skill_model": skill_model,
+        "signal_completeness": generated.get("signal_completeness"),
+        "evidence": evidence_signal_snapshot(generated, selected_code_context),
+        "recruiter": {
+            "hiring_recommendation": generated.get("hiring_recommendation"),
+            "role_fit": generated.get("role_fit", []),
+            "manual_section_evaluations": generated.get("manual_section_evaluations", []),
+            "interview_questions": generated.get("interview_questions", []),
+            "recruiter_risks": generated.get("recruiter_risks", []),
+        },
+        "summary_for_search": "\n".join(part for part in summary_parts if part).strip(),
+    }
+
+
 def fallback_analysis(payload: dict) -> dict:
     github = payload.get("github", {})
     career_stage = payload.get("career_stage", infer_career_stage(payload))
@@ -847,6 +1108,29 @@ def fallback_analysis(payload: dict) -> dict:
             f"{github.get('repository_count', 0)} GitHub repositories synced.",
             f"{github.get('commits', 0)} total synced commits observed.",
         ],
+        "hiring_recommendation": {
+            "decision": "insufficient_evidence",
+            "best_fit_level": "unknown",
+            "best_fit_roles": [],
+            "strongest_hiring_signal": "Generation unavailable in fallback mode.",
+            "primary_verification_point": "Run analysis with an API key and reviewed source data.",
+            "summary": "There is not enough generated evidence to make a recruiter recommendation.",
+            "confidence": "low",
+        },
+        "role_fit": [],
+        "manual_section_evaluations": [
+            {
+                "kind": section.get("kind", "unknown"),
+                "title": section.get("title", "Untitled section"),
+                "recruiter_value": "unclear",
+                "evidence": [],
+                "verification_points": ["Manual section was present but not evaluated in fallback mode."],
+            }
+            for section in payload.get("sections", [])
+            if isinstance(section, dict)
+        ],
+        "interview_questions": [],
+        "recruiter_risks": ["Full recruiter decision support is unavailable in fallback mode."],
         "recruiter_copy": "Evaluation unavailable in fallback mode.",
     }
 
@@ -1046,6 +1330,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             prompt_omissions,
             selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
         )
+        snapshot_payload = payload
 
         try:
             generated = generate_analysis(payload)
@@ -1065,6 +1350,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 retry_omissions,
                 selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
             )
+            snapshot_payload = retry_payload
             generated = generate_analysis(retry_payload)
 
         evaluation.status = AnalysisStatus.ready
@@ -1073,6 +1359,15 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
         evaluation.skill_model = legacy_skill_model(generated["skill_model"])
         evaluation.career_stage = generated["career_stage"]
         evaluation.signal_completeness = generated["signal_completeness"]
+        evaluation.profile_signal_snapshot = build_profile_signal_snapshot(
+            user=user,
+            repositories=repositories,
+            sections=sections,
+            leetcode=leetcode,
+            payload=snapshot_payload,
+            generated=generated,
+            selected_code_context=[context for context in selected_code_context if "error" not in context],
+        )
         evaluation.repository_evaluations = generated["repository_evaluations"]
         evaluation.strengths = generated["strengths"]
         evaluation.growth_areas = generated["growth_areas"]

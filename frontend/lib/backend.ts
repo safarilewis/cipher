@@ -50,9 +50,18 @@ export async function backendFetch<T>(path: string, init: RequestInit = {}): Pro
 }
 
 export async function publicFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${backendUrl}${path}`, { cache: "no-store" });
+  return publicBackendFetch<T>(path);
+}
+
+export async function publicBackendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const response = await fetch(`${backendUrl}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Public backend request failed with ${response.status}`);
+    const message = await readBackendError(response);
+    throw new Error(`Public backend request failed for ${path} (${response.status}): ${message}`);
   }
   return parseJsonResponse<T>(response, path);
 }

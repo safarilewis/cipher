@@ -13,7 +13,7 @@ from app.services.analysis import run_analysis
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 logger = logging.getLogger(__name__)
-STALE_RUNNING_AFTER = timedelta(minutes=15)
+STALE_RUNNING_AFTER = timedelta(minutes=3)
 
 
 def run_analysis_background(user_id: str, evaluation_id: str) -> None:
@@ -41,7 +41,7 @@ def run_analysis_background(user_id: str, evaluation_id: str) -> None:
 
 
 def start_analysis_worker(user_id: str, evaluation_id: str) -> None:
-    worker = Thread(target=run_analysis_background, args=(user_id, evaluation_id), daemon=True)
+    worker = Thread(target=run_analysis_background, args=(user_id, evaluation_id), daemon=False)
     worker.start()
 
 

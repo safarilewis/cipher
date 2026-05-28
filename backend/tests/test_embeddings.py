@@ -98,3 +98,72 @@ def test_build_rag_context_diversifies_files(monkeypatch, db_session):
 
     assert [chunk["file_path"] for chunk in architecture] == ["src/a.py", "src/a.py", "src/b.py", "src/c.py"]
     assert all(chunk["repo"] == "ada/app" for chunk in architecture)
+
+
+def test_build_profile_search_text_assembles_query_friendly_blob():
+    from types import SimpleNamespace
+    from app.services.embeddings import build_profile_search_text
+
+    user = SimpleNamespace(name="Ada", headline="Compiler builder")
+    evaluation = SimpleNamespace(
+        summary="Built a parser in Rust over two semesters.",
+        profile_signal_snapshot={
+            "summary_for_search": "Live profile: Rust compiler, improving tests, active commits.",
+            "code_hygiene": {"positive_signals": ["test files present"]},
+        },
+        skill_model_v2={
+            "code_quality": {"prose": "Clean Rust idioms, ownership respected."},
+            "delivery": {"prose": "Ships in spurts."},
+            "algorithms": {"prose": "Parser/lexer DSA only."},
+        },
+        strengths=["Strong systems instincts", "Test discipline"],
+    )
+    repos = [
+        SimpleNamespace(full_name="ada/parser", language="Rust"),
+        SimpleNamespace(full_name="ada/runtime", language="Rust"),
+        SimpleNamespace(full_name="ada/tools", language="Python"),
+    ]
+
+    text = build_profile_search_text(user, evaluation, repos)
+
+    assert "Ada" in text
+    assert "Compiler builder" in text
+    assert "Live profile: Rust compiler" in text
+    assert "test files present" in text
+    assert "Built a parser" in text
+    assert "Clean Rust idioms" in text
+    assert "Strong systems instincts" in text
+    assert "Languages: Python, Rust" in text
+    assert "ada/parser" in text
+
+
+def test_upsert_profile_embedding_writes_record(db_session, monkeypatch):
+    from types import SimpleNamespace
+    from app.models import ProfileEmbedding, User
+    from app.services.embeddings import upsert_profile_embedding
+
+    user = User(id="u-search", slug="ada", name="Ada", headline="Hacker")
+    db_session.add(user)
+    db_session.commit()
+
+    evaluation = SimpleNamespace(
+        summary="Hacker summary.",
+        profile_signal_snapshot={"summary_for_search": "Queryable hacker profile."},
+        skill_model_v2={"code_quality": {"prose": "tidy"}},
+        strengths=["focus"],
+    )
+    monkeypatch.setattr("app.services.embeddings.embed_query", lambda text: [0.1] * 1536)
+
+    record = upsert_profile_embedding(db_session, user, evaluation, repositories=[])
+
+    assert record is not None
+    stored = db_session.get(ProfileEmbedding, "u-search")
+    assert stored.summary == "Hacker summary."
+    assert "Queryable hacker profile." in stored.source_text
+    assert "Hacker summary." in stored.source_text
+
+
+def test_search_profiles_returns_empty_on_sqlite(db_session):
+    from app.services.embeddings import search_profiles
+
+    assert search_profiles(db_session, query="rust compilers") == []

@@ -21,6 +21,7 @@ from app.services.analysis import (
     generate_analysis,
     generate_with_anthropic,
     infer_career_stage,
+    build_profile_signal_snapshot,
     legacy_project_complexity_notes,
     legacy_skill_model,
     limit_code_context_for_prompt,
@@ -312,7 +313,7 @@ def test_build_payload_includes_temporal_signals():
     assert "temporal_signals" in payload
 
 
-def test_create_analysis_queues_background_work():
+def test_create_analysis_starts_background_work(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
@@ -322,16 +323,21 @@ def test_create_analysis_queues_background_work():
     db.add(user)
     db.commit()
 
+    started = []
+    monkeypatch.setattr("app.api.analysis.start_analysis_worker", lambda user_id, evaluation_id: started.append((user_id, evaluation_id)))
+
     background_tasks = BackgroundTasks()
     evaluation = create_analysis(background_tasks, db, user)
 
     assert evaluation.status == AnalysisStatus.queued
-    assert len(background_tasks.tasks) == 1
+    assert background_tasks.tasks == []
+    assert started == [("u-queue", evaluation.id)]
 
     active = create_analysis(BackgroundTasks(), db, user)
 
     assert active.id == evaluation.id
     assert active.status == AnalysisStatus.queued
+    assert started == [("u-queue", evaluation.id), ("u-queue", evaluation.id)]
 
 
 def test_latest_analysis_keeps_previous_ready_when_newer_run_failed():
@@ -558,3 +564,81 @@ def test_analyze_repo_architecture_detects_patterns():
     assert "layered_architecture" in result["patterns_detected"]
     assert "has_ci" in result["patterns_detected"]
     assert "has_docker" in result["patterns_detected"]
+
+
+def test_compute_temporal_signals_uses_raw_created_at_when_model_lacks_created_at():
+    from app.services.analysis import compute_temporal_signals
+
+    old_repo = SimpleNamespace(
+        full_name="ada/c",
+        language="C",
+        commit_count=10,
+        pushed_at=datetime(2024, 1, 1),
+        raw={"created_at": "2023-01-01T00:00:00Z"},
+    )
+    new_repo = SimpleNamespace(
+        full_name="ada/py",
+        language="Python",
+        commit_count=60,
+        pushed_at=datetime(2026, 1, 1),
+        raw={"created_at": "2026-01-01T00:00:00Z"},
+    )
+
+    result = compute_temporal_signals([old_repo, new_repo])
+
+    assert result["available"] is True
+    assert result["first_repo_date"].startswith("2023-01-01")
+    assert result["language_timeline"][0]["repo"] == "ada/c"
+
+
+def test_build_profile_signal_snapshot_captures_live_profile_dimensions():
+    user = SimpleNamespace(name="Ada", slug="ada", headline="Compiler builder")
+    repo = SimpleNamespace(
+        full_name="ada/compiler",
+        language="Rust",
+        commit_count=80,
+        all_time_commit_count=120,
+        pushed_at=datetime(2026, 5, 1),
+        selected_for_analysis=True,
+        raw={"created_at": "2025-01-01T00:00:00Z"},
+    )
+    section = SimpleNamespace(
+        kind="project",
+        title="Compiler",
+        organization="School",
+        start_date="2025-01",
+        end_date="2025-05",
+    )
+    payload = {
+        "github": {"commits": 80, "repository_count": 1},
+        "temporal_signals": {"available": True, "complexity_trend": "growing", "active_years": 1.3},
+        "selected_repositories_for_code_review": [
+            {"full_name": "ada/compiler", "pushed_at": "2026-05-01T00:00:00", "recent_commits": [{"message": "Add parser"}]}
+        ],
+        "signal_completeness": {"delivery": {"recency": "active"}},
+    }
+    generated = {
+        "summary": "Rust compiler project with growing maturity.",
+        "recruiter_copy": "Ada shows compiler and systems promise.",
+        "strengths": ["Systems instincts"],
+        "skill_model": {"algorithms": {"source": "repo_evidence", "prose": "Parser work."}},
+        "career_stage": {"stage": "student"},
+        "signal_completeness": {"code_quality": {"source": "code_context"}},
+        "evidence_highlights": ["Cites parser files"],
+        "repository_evaluations": [{"specific_code_references": ["src/parser.rs"]}],
+    }
+    code_context = [{
+        "full_name": "ada/compiler",
+        "structure_sample": ["src/parser.rs", "tests/parser_test.rs", ".github/workflows/ci.yml"],
+        "key_files": [{"path": "src/parser.rs", "content": "fn parse() {}"}],
+        "architecture_signals": {"patterns_detected": ["has_tests", "has_ci"], "framework_hints": ["rust"], "file_count": 3, "max_depth": 2},
+    }]
+
+    snapshot = build_profile_signal_snapshot(user, [repo], [section], None, payload, generated, code_context)
+
+    assert snapshot["timeline"]["complexity_trend"] == "growing"
+    assert "test files present" in snapshot["code_hygiene"]["positive_signals"]
+    assert snapshot["architecture"][0]["patterns"] == ["has_tests", "has_ci"]
+    assert snapshot["delivery"]["total_commits"] == 80
+    assert snapshot["evidence"]["cited_files"] == ["src/parser.rs"]
+    assert "Rust compiler project" in snapshot["summary_for_search"]

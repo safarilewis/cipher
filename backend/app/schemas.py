@@ -103,6 +103,7 @@ class EvaluationOut(BaseModel):
     skill_model_v2: dict | None = None
     career_stage: dict | None = None
     signal_completeness: dict | None = None
+    profile_signal_snapshot: dict | None = None
     repository_evaluations: list | None = None
     strengths: list | None
     growth_areas: list | None
@@ -123,3 +124,15 @@ class PublicProfileOut(BaseModel):
     repositories: list[RepositoryOut]
     leetcode: LeetCodeSnapshotOut | None
     evaluation: EvaluationOut | None
+
+
+class PublicProfileQuestionIn(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+
+
+class PublicProfileQuestionOut(BaseModel):
+    answer: str
+    recommendation: Literal["recommend", "consider", "hold", "insufficient_evidence"]
+    confidence: Literal["high", "medium", "low"]
+    evidence: list[str]
+    verification_questions: list[str]

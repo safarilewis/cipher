@@ -88,6 +88,8 @@ export default async function DashboardPage() {
   const projectCount = sections.filter((section) => section.kind === "project").length;
   const experienceCount = sections.filter((section) => section.kind === "experience").length;
   const displayName = profile.name ?? session.user?.name ?? "Your profile";
+  const widgetOrigin = process.env.NEXTAUTH_URL ?? process.env.AUTH_URL ?? "http://localhost:3000";
+  const widgetSnippet = `<script async src="${widgetOrigin}/widget.js" data-slug="${profile.slug}"></script>`;
   const initials = displayName
     .split(" ")
     .filter(Boolean)
@@ -165,6 +167,20 @@ export default async function DashboardPage() {
         )}
         {profile.published && <Link className="btn-secondary" href={`/u/${profile.slug}`}>Open public profile</Link>}
       </div>
+
+      {profile.published && (
+        <section className="dashboard-section-panel">
+          <div className="dashboard-section-panel-head">
+            <div>
+              <div className="activity-label">Portfolio widget</div>
+              <h2>Embed recruiter role-fit search</h2>
+              <p className="muted">Drop this script into a portfolio so recruiters can ask whether you fit a specific role using your published cipher evidence.</p>
+            </div>
+            <Link className="btn-secondary" href={`/u/${profile.slug}`}>Preview</Link>
+          </div>
+          <pre className="embed-code"><code>{widgetSnippet}</code></pre>
+        </section>
+      )}
 
       <section className="dashboard-section-panel">
         <div className="dashboard-section-panel-head">

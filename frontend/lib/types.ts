@@ -48,6 +48,7 @@ export type Evaluation = {
   skill_model_v2?: Record<string, unknown> | null;
   career_stage?: Record<string, unknown> | null;
   signal_completeness?: Record<string, unknown> | null;
+  profile_signal_snapshot?: Record<string, unknown> | null;
   repository_evaluations?: unknown[] | null;
   strengths: string[] | null;
   growth_areas: string[] | null;
@@ -74,4 +75,12 @@ export type PublicProfile = {
     created_at: string;
   } | null;
   evaluation: Evaluation | null;
+};
+
+export type PublicProfileQuestionAnswer = {
+  answer: string;
+  recommendation: "recommend" | "consider" | "hold" | "insufficient_evidence";
+  confidence: "high" | "medium" | "low";
+  evidence: string[];
+  verification_questions: string[];
 };

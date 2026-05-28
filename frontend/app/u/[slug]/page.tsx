@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
+import { PublicProfileQuestionBox } from "@/components/PublicProfileQuestionBox";
 import { publicFetch } from "@/lib/backend";
 import type { PublicProfile } from "@/lib/types";
 
@@ -29,6 +30,8 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
             <div className="analysis-copy">{profile.evaluation.recruiter_copy}</div>
           </section>
         )}
+
+        <PublicProfileQuestionBox slug={slug} />
 
         <section className="grid">
           <article className="card">
