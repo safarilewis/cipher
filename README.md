@@ -227,12 +227,6 @@ Set:
 - `BACKEND_URL`
 - `BACKEND_SESSION_SECRET` (must match backend)
 
-## Known limitations
-
-- No migration files yet; schema is initialized on backend startup.
-- Redis is provisioned but not yet used for background worker queues.
-- If no AI key is configured, analysis returns deterministic fallback output.
-
 ## License
 
 No license file is currently included. Add a `LICENSE` file before open-source distribution.
