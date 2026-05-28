@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS code_chunks (
   chunk_index INTEGER DEFAULT 0,
   content TEXT,
   embedding vector(1536),
-  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
-  CONSTRAINT uq_repo_file_chunk UNIQUE (repo_id, file_path, chunk_index)
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
 );
 
 -- Example: create ivfflat or hnsw index depending on pgvector version

@@ -9,9 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import AnalysisStatus, GeneratedEvaluation, GitHubRepository, LeetCodeSnapshot, ProfileSection, User
-from app.services.github import fetch_repo_code_context, get_github_access_token
+from app.services.embeddings import upsert_profile_embedding
 from app.services.scoring import github_quality_signals, leetcode_signals, profile_signals
-from app.services.embeddings import embed_repo_files, build_rag_context
 import logging
 
 logger = logging.getLogger(__name__)
@@ -202,10 +201,9 @@ ANALYSIS_SCHEMA = {
                     "properties": {
                         "available": {"type": "boolean"},
                         "primary_source": {"type": "string", "enum": ["leetcode", "repo_evidence", "both", "none"]},
-                        "leetcode_strength": {"type": "string", "enum": ["strong", "moderate", "weak", "absent"]},
                         "repo_dsa_found": {"type": "boolean"},
                     },
-                    "required": ["available", "primary_source", "leetcode_strength", "repo_dsa_found"],
+                    "required": ["available", "primary_source", "repo_dsa_found"],
                 },
                 "profile_depth": {
                     "type": "object",
@@ -313,21 +311,22 @@ ROLE
 You are a senior engineering evaluator producing structured developer assessments for cipher. Your evaluations are read by developers who want honest feedback and by recruiters who need accurate signal. You are not a marketer.
 
 CARDINAL RULES
-- Every claim must trace to a specific source: a repo name, a file path, a LeetCode stat, or a profile section. No invented evidence.
+- Every claim must trace to a specific source: a repo name, a file path, a profile section, or a LeetCode stat when LeetCode data is present. No invented evidence.
 - Do not use: "passionate", "rockstar", "ninja", "proven track record", "strong communicator", or any filler that carries no information.
 - If evidence is missing, say what is missing and what it would change. Missing evidence is not a failing grade; it is an honest gap.
 - Null scores mean insufficient evidence. Never return 0 when data is absent. 0 is a measurement. null is an absence of measurement.
 
 EVALUATION WORKFLOW
-- First identify the strongest evidence available for each dimension: code context for code quality, activity plus completed work for delivery, and repo DSA or LeetCode for algorithms.
+- First identify the strongest evidence available for each dimension: code context for code quality, activity plus completed work for delivery, and repo DSA plus provided LeetCode data for algorithms.
 - Then judge whether the signal is strong, mixed, weak, or absent. Weak signal should lower scores instead of being averaged away.
+- For delivery, use commit counts, pushed_at recency, and recent commit messages/change summaries when available. Commit volume is activity evidence, but recent messages reveal whether work reflects meaningful product changes, maintenance, experiments, or trivial churn.
 - If the prompt contains noisy or generated artifacts, ignore them unless they are part of a specific engineering choice worth noting.
 - If the repo is mostly scaffolding, lockfiles, cache directories, generated code, or empty shells, treat that as weak signal and say so explicitly.
 
 EVIDENCE HIERARCHY
 - Highest: actual code context, architecture, tests, file structure, and repo-specific implementation details.
 - Medium: repository metadata such as descriptions, language, stars, forks, and commit history.
-- Lower: LeetCode and other external practice stats, which should support but not dominate the evaluation.
+- Lower: provided LeetCode and other external practice stats, which should support but not dominate the evaluation.
 - Lowest: noisy paths, generated files, cache folders, and dependency artifacts.
 
 CAREER STAGE CONTEXT
@@ -336,14 +335,22 @@ Read the career_stage object before writing anything. Your framing depends on it
 - early: some production experience may be expected. Evaluate transition from coursework/projects toward real systems.
 - mid/senior: full engineering bar applies. Production quality, architecture decisions, and scale signal matter.
 
+PEER CALIBRATION AND ACCURACY
+- Score and describe the developer against the peer cohort implied by career_stage.scope: students against internship/new-grad peers, early-career developers against early-career peers, and mid/senior developers against practicing engineers at that level.
+- Do not compare a student or new grad to a senior production engineer unless explicitly noting a future growth path.
+- Prefer conservative, evidence-backed scores over flattering scores. If the evidence is thin, lower confidence or return null instead of filling gaps with assumptions.
+- Calibrate high scores to unusually strong evidence for that cohort: multiple completed systems, concrete architecture choices, tests, deployed work, sustained activity, or clear algorithm implementations.
+- Keep all percentile/ranking language scoped to the cohort. For example, use "strong for a new-grad profile" rather than "strong engineer" when career_stage is student or new_grad.
+
 COURSEWORK REPO POLICY
 Coursework-looking repositories are learning evidence. Assess code cleanliness, concept understanding, whether the developer went beyond minimum assignment work, and progression across repos. Do not penalize coursework repos for lacking production architecture.
 
 ALGORITHMS SIGNAL POLICY
-LeetCode is only a supporting signal. Repo evidence, code context, and project quality should dominate the algorithms assessment, especially when LeetCode is absent, weak, or generic.
-If LeetCode is absent or weak, scan selected repository names, descriptions, README text, structure, and key files for DSA evidence such as graph/tree/heap/dp/trie/sort/bfs/dfs, algorithms directories, competitive programming, Advent of Code, CS coursework, complexity notes, or custom algorithm implementations.
+LeetCode is only a supporting signal when the payload includes a leetcode object. Repo evidence, code context, and project quality should dominate the algorithms assessment.
+If the payload does not include a leetcode object, do not mention LeetCode or its absence anywhere in the analysis. Instead, scan selected repository names, descriptions, README text, structure, and key files for DSA evidence such as graph/tree/heap/dp/trie/sort/bfs/dfs, algorithms directories, competitive programming, Advent of Code, CS coursework, complexity notes, or custom algorithm implementations.
+If a leetcode object is present but weak, scan repositories for stronger DSA evidence before scoring.
 If repo-based DSA evidence exists, set algorithms.source to "repo_evidence" or "both", score from that evidence, and cite it. Do not over-reward LeetCode-only signal when repo evidence is thin or absent.
-If no algorithms signal exists, set algorithms.score to null, algorithms.source to "insufficient", and explain that no algorithms signal was found in LeetCode or repositories.
+If no algorithms signal exists, set algorithms.score to null, algorithms.source to "insufficient", and explain that no algorithms signal was found in the available evidence.
 
 NEGATIVE SIGNAL POLICY
 - Do not materially penalize general repo hygiene issues such as build artifacts, cache directories, generated files, or dependency folders. Treat them as neutral unless they are directly relevant to a code quality observation.
@@ -370,12 +377,6 @@ ARCHITECTURE SIGNAL POLICY
 - Architecture observations push delivery and code_quality scores upward when production patterns are present.
 - Cross-reference with temporal_signals — architectural maturity over time is a strong delivery signal.
 
-RAG CONTEXT POLICY
-- rag_context provides dimension-specific code chunks via semantic search.
-- rag_context.architecture / code_quality / algorithms / tests each hold the top retrieved chunks.
-- Cite specific files from rag_context in repository_evaluations and skill_model prose. RAG chunks are higher-priority evidence than structure_sample paths.
-- If rag_context for a dimension is empty, fall back to selected_repository_code_context, but note the gap in confidence.
-
 DEEPER CODE REASONING
 - code_quality_notes and architecture_notes must cite specific files or patterns — not generic praise.
 - Weak (AVOID): "Clean code structure", "Good separation of concerns."
@@ -384,7 +385,7 @@ DEEPER CODE REASONING
 - One concrete architectural choice per repo in architecture_notes. Skip if not concrete.
 
 SCORING HEURISTICS
-- algorithms: strong LeetCode plus repo DSA -> 80-95; strong LeetCode alone -> 60-75; moderate LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor signal -> 25-45; no signal -> null.
+- algorithms: strong provided LeetCode plus repo DSA -> 80-95; strong provided LeetCode alone -> 60-75; moderate provided LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor available signal -> 25-45; no available signal -> null.
 - code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; poor architecture, weak projects, or generated-artifact-heavy repos should drop below the middle band; metadata only -> null.
 - code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; metadata only -> null.
 - delivery: active commits under 90 days plus multiple projects/completions -> 70-100; 3+ end-to-end systems should not score below 78; moderate activity -> 40-70; low/dormant -> 20-40; no commit data -> null.
@@ -393,8 +394,8 @@ SCORING HEURISTICS
 SCORING ANCHORS
 - Treat architecture problems as first-class issues: missing boundaries, ad hoc coupling, lack of tests, or weak separation of concerns should lower code_quality even if the repo has many files.
 - Treat polished boilerplate or auto-generated structure as low signal unless the developer made clear engineering choices on top of it.
-- Treat LeetCode as evidence of algorithm practice, not system design, code quality, or product maturity.
-- Treat strong repo-based DSA as a top-tier algorithms signal even when LeetCode is absent; that should commonly land in the 80s when the repo evidence is clear and specific.
+- Treat LeetCode as evidence of algorithm practice only when the payload includes it, not system design, code quality, or product maturity.
+- Treat strong repo-based DSA as a top-tier algorithms signal; that should commonly land in the 80s when the repo evidence is clear and specific.
 - Treat 3 or more end-to-end systems as a strong delivery signal; delivery.score should be floored at 78 when that evidence is present.
 - Treat live, deployed, actively maintained, or otherwise production-shaped projects as system-tier repositories.
 - Treat commit count as activity only; do not assume strong delivery from raw commit volume if the work is repetitive, generated, or trivial.
@@ -402,12 +403,12 @@ SCORING ANCHORS
 OUTPUT REQUIREMENTS
 - summary: 2-4 evidence-backed sentences calibrated to career stage. Do not open with the developer's name.
 - skill_model.code_quality.prose: specific code observations when available, otherwise state the code-review gap.
-- skill_model.delivery.prose: commit cadence, recency, repo activity, and completion signals. For students, frame as learning consistency.
-- skill_model.algorithms.prose: LeetCode plus repo DSA evidence, with source stated explicitly.
+- skill_model.delivery.prose: commit cadence, recency, repo activity, recent commit/change summaries, and completion signals. For students, frame as learning consistency.
+- skill_model.algorithms.prose: repo DSA evidence and available LeetCode evidence when present, with source stated explicitly. If LeetCode is not in the payload, do not refer to it.
 - strengths: 3-5 bullets; each must cite a concrete source.
 - growth_areas: 2-4 constructive bullets. For students, do not list lack of production experience as a weakness.
 - repository_evaluations: one object per repository with code context; empty array when no code context exists.
-- evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles, each using APA-like parenthetical in-text citations such as `(repo-name, path/to/file.py)` or `(leetcode, 213 solved)`.
+- evidence_highlights: 4-7 concrete facts with numbers, repo names, file paths, or section titles, each using APA-like parenthetical in-text citations such as `(repo-name, path/to/file.py)`. Use LeetCode citations only when the payload includes LeetCode data.
 - recruiter_copy: one honest polished paragraph, calibrated to career stage, that also includes a clear recommendation to the recruiter about the candidate's technical ability and the kinds of roles they should be considered for.
 
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
@@ -557,21 +558,13 @@ def assess_signal_completeness(input_payload: dict) -> dict:
     if most_recent:
         recency = "active" if most_recent > datetime.utcnow() - timedelta(days=90) else "dormant"
 
-    leetcode = input_payload.get("leetcode", {})
-    leetcode_strength = "absent"
-    if leetcode.get("available"):
-        medium_hard = leetcode.get("medium_solved", 0) + leetcode.get("hard_solved", 0)
-        if medium_hard >= 100:
-            leetcode_strength = "strong"
-        elif medium_hard >= 30:
-            leetcode_strength = "moderate"
-        else:
-            leetcode_strength = "weak"
+    leetcode = input_payload.get("leetcode")
+    leetcode_available = isinstance(leetcode, dict) and leetcode.get("available")
 
     dsa_found = repo_dsa_found(input_payload)
-    if leetcode.get("available") and dsa_found:
+    if leetcode_available and dsa_found:
         algorithm_source = "both"
-    elif leetcode.get("available"):
+    elif leetcode_available:
         algorithm_source = "leetcode"
     elif dsa_found:
         algorithm_source = "repo_evidence"
@@ -594,7 +587,6 @@ def assess_signal_completeness(input_payload: dict) -> dict:
         "algorithms": {
             "available": algorithm_source != "none",
             "primary_source": algorithm_source,
-            "leetcode_strength": leetcode_strength,
             "repo_dsa_found": dsa_found,
         },
         "profile_depth": {
@@ -775,7 +767,6 @@ def build_analysis_payload(
     selected_code_context: list[dict] | None = None,
     selected_code_context_omissions: list[dict] | None = None,
     selected_code_context_total: int | None = None,
-    rag_context: dict | None = None,
 ) -> dict:
     selected_repositories = [
         {
@@ -787,6 +778,7 @@ def build_analysis_payload(
             "commit_count": repo.commit_count,
             "all_time_commit_count": getattr(repo, "all_time_commit_count", 0) or 0,
             "pushed_at": repo.pushed_at.isoformat() if repo.pushed_at else None,
+            "recent_commits": (getattr(repo, "raw", None) or {}).get("recent_commits", []) if isinstance(getattr(repo, "raw", None), dict) else [],
         }
         for repo in repositories
         if repo.selected_for_analysis
@@ -799,7 +791,6 @@ def build_analysis_payload(
         "selected_repository_code_context": selected_code_context or [],
         "selected_repository_code_context_total": selected_code_context_total if selected_code_context_total is not None else len(selected_code_context or []),
         "selected_repository_code_context_omissions": selected_code_context_omissions or [],
-        "leetcode": leetcode_signals(leetcode),
         "sections": [
             {
                 "kind": section.kind,
@@ -813,8 +804,9 @@ def build_analysis_payload(
             for section in sections
         ],
         "manual_profile": profile_signals(sections),
-        "rag_context": rag_context or {},
     }
+    if leetcode is not None:
+        payload["leetcode"] = leetcode_signals(leetcode)
     payload["career_stage"] = infer_career_stage(payload, user.career_stage_override)
     payload["signal_completeness"] = assess_signal_completeness(payload)
     payload["temporal_signals"] = compute_temporal_signals(repositories)
@@ -951,29 +943,22 @@ def generate_with_openai(payload: dict) -> dict:
     return json.loads(response.output_text)
 
 
-def extract_json_response(text: str) -> dict:
-    cleaned_text = text.strip()
-    if cleaned_text.startswith("```"):
-        cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
-        cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
-    return json.loads(cleaned_text)
+ANTHROPIC_TOOL_NAME = "submit_evaluation"
 
 
-def extract_anthropic_text(response) -> str:
-    response_text = getattr(response, "text", None)
-    if isinstance(response_text, str) and response_text.strip():
-        return response_text
-
+def extract_anthropic_tool_input(response, tool_name: str) -> dict:
     content = getattr(response, "content", None) or []
-    text_blocks = []
     for block in content:
-        if isinstance(block, dict):
-            if block.get("type") == "text":
-                text_blocks.append(str(block.get("text", "")))
+        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", "")
+        if block_type != "tool_use":
             continue
-        if getattr(block, "type", "") == "text":
-            text_blocks.append(str(getattr(block, "text", "")))
-    return "".join(text_blocks)
+        name = block.get("name") if isinstance(block, dict) else getattr(block, "name", "")
+        if name != tool_name:
+            continue
+        tool_input = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
+        if isinstance(tool_input, dict):
+            return tool_input
+    raise ValueError(f"Anthropic response missing tool_use block for {tool_name}")
 
 
 def generate_with_anthropic(payload: dict) -> dict:
@@ -986,11 +971,24 @@ def generate_with_anthropic(payload: dict) -> dict:
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=4096,
-        system=EVALUATION_INSTRUCTIONS,
+        system=[
+            {
+                "type": "text",
+                "text": EVALUATION_INSTRUCTIONS,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        tools=[
+            {
+                "name": ANTHROPIC_TOOL_NAME,
+                "description": "Submit the structured developer evaluation matching the required schema.",
+                "input_schema": ANALYSIS_SCHEMA,
+            }
+        ],
+        tool_choice={"type": "tool", "name": ANTHROPIC_TOOL_NAME},
         messages=[{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
     )
-    text_content = extract_anthropic_text(response)
-    return extract_json_response(text_content)
+    return extract_anthropic_tool_input(response, ANTHROPIC_TOOL_NAME)
 
 
 def generate_analysis(payload: dict) -> dict:
@@ -1009,15 +1007,13 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
     try:
         repositories = db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
         selected_repositories = [repo for repo in repositories if repo.selected_for_analysis][:20]
-        access_token = get_github_access_token(db, user)
         selected_code_context = []
         for repo in selected_repositories:
-            try:
-                context = fetch_repo_code_context(repo.full_name, access_token)
-                repo.code_analysis_snapshot = context
+            context = repo.code_analysis_snapshot if isinstance(repo.code_analysis_snapshot, dict) else None
+            if context:
                 selected_code_context.append(context)
-            except Exception as exc:
-                selected_code_context.append({"full_name": repo.full_name, "error": str(exc)})
+            else:
+                selected_code_context.append({"full_name": repo.full_name, "error": "Code context has not been synced yet"})
 
         # Attach architecture signals to each successful code context
         for context in selected_code_context:
@@ -1027,49 +1023,6 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 context["architecture_signals"] = analyze_repo_architecture(context)
             except Exception as exc:
                 logger.warning("Architecture analysis failed for %s: %s", context.get("full_name"), exc)
-
-        # Embed code context asynchronously-friendly: schedule or run embedding in batches.
-        # For now, attempt to embed synchronously but guard against failures so analysis continues.
-        # Enqueue embedding jobs instead of running them inline when Redis is configured.
-        redis_url = getattr(get_settings(), "redis_url", None)
-        if redis_url:
-            try:
-                from redis import Redis
-                from rq import Queue
-
-                redis_conn = Redis.from_url(redis_url)
-                q = Queue("embeddings", connection=redis_conn)
-                for repo, context in zip(selected_repositories, selected_code_context):
-                    if not context or "error" in context:
-                        continue
-                    q.enqueue("app.workers.embeddings_worker.enqueue_embedding_job", user.id, repo.id, evaluation.id, context)
-            except Exception:
-                logger.exception("Failed to enqueue embedding jobs; falling back to inline embedding")
-                # fallback to inline embedding
-                for repo, context in zip(selected_repositories, selected_code_context):
-                    if not context or "error" in context:
-                        continue
-                    try:
-                        embed_repo_files(db=db, user_id=user.id, repo_id=repo.id, analysis_id=evaluation.id, code_context=context)
-                    except Exception as exc:  # don't block analysis on embedding errors
-                        logger.warning("Embedding failed for %s: %s", repo.full_name, exc)
-        else:
-            # No Redis configured: run inline but guard against exceptions
-            for repo, context in zip(selected_repositories, selected_code_context):
-                if not context or "error" in context:
-                    continue
-                try:
-                    embed_repo_files(db=db, user_id=user.id, repo_id=repo.id, analysis_id=evaluation.id, code_context=context)
-                except Exception as exc:  # don't block analysis on embedding errors
-                    logger.warning("Embedding failed for %s: %s", repo.full_name, exc)
-
-        # Build rag_context from stored chunks (if any)
-        repo_id_to_name = {repo.id: repo.full_name for repo in selected_repositories}
-        try:
-            rag_context = build_rag_context(db=db, user_id=user.id, analysis_id=evaluation.id, repo_id_to_full_name=repo_id_to_name)
-        except Exception as exc:
-            logger.warning("Failed to build rag_context: %s", exc)
-            rag_context = {}
 
         prompt_code_context, prompt_omissions = limit_code_context_for_prompt(
             selected_repositories,
@@ -1092,7 +1045,6 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             prompt_code_context,
             prompt_omissions,
             selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
-            rag_context=rag_context,
         )
 
         try:
@@ -1112,7 +1064,6 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 retry_context,
                 retry_omissions,
                 selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
-                rag_context=rag_context,
             )
             generated = generate_analysis(retry_payload)
 
@@ -1136,4 +1087,12 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
     evaluation.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(evaluation)
+
+    if evaluation.status == AnalysisStatus.ready:
+        try:
+            upsert_profile_embedding(db, user, evaluation, repositories)
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Profile embedding upsert failed for user %s: %s", user.id, exc)
+
     return evaluation

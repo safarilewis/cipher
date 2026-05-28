@@ -20,6 +20,10 @@ dependencies = [
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["migrations*", "tests*", "scripts*"]
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0.0",
@@ -29,4 +33,3 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-

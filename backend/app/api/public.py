@@ -1,11 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import AnalysisStatus, GeneratedEvaluation, GitHubRepository, LeetCodeSnapshot, ProfileSection, User
 from app.schemas import PublicProfileOut
+from app.services.embeddings import search_profiles
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+@router.get("/search")
+def search_developer_profiles(
+    q: str = Query(..., min_length=1, max_length=500, description="Natural-language search query"),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> dict:
+    return {"query": q, "results": search_profiles(db, query=q, limit=limit, published_only=True)}
 
 
 @router.get("/profiles/{slug}", response_model=PublicProfileOut)

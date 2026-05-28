@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: adpt
       POSTGRES_PASSWORD: adpt
@@ -9,20 +10,43 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adpt -d adpt"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   redis:
     image: redis:7
+    restart: unless-stopped
     ports:
       - "6379:6379"
+
+  migrations:
+    image: python:3.12-slim
+    working_dir: /app
+    command: sh -c "pip install -e . && python scripts/apply_migrations.py"
+    environment:
+      DATABASE_URL: postgresql+psycopg://adpt:adpt@postgres:5432/adpt
+      BACKEND_SESSION_SECRET: dev-secret
+      INIT_DB_ON_STARTUP: "false"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   backend:
     image: python:3.12-slim
     working_dir: /app
     command: sh -c "pip install -e . && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg://adpt:adpt@postgres:5432/adpt
       REDIS_URL: redis://redis:6379/0
       BACKEND_SESSION_SECRET: dev-secret
+      INIT_DB_ON_STARTUP: "false"
       AUTH_TRUST_DEV_HEADERS: "false"
       FRONTEND_ORIGIN: http://localhost:3000
     ports:
@@ -30,9 +54,12 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrations:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:
-

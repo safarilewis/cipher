@@ -1,17 +1,42 @@
 from datetime import timedelta
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import require_user
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.models import ConnectedAccount, GitHubRepository, LeetCodeSnapshot, SourceKind, User
 from app.schemas import GitHubConnectIn, LeetCodeConnectIn, RepositoryOut, RepositorySelectionIn, SourceOut
+from app.services.embeddings import embed_repo_files, repo_has_embeddings
 from app.services.github import delete_github_source, sync_github
 from app.services.leetcode import delete_leetcode_source, sync_leetcode
 from app.services.refresh_policy import assert_free_tier_refresh_allowed, free_tier_refresh_days, next_free_tier_refresh_at
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+logger = logging.getLogger(__name__)
+
+
+def precompute_repo_embeddings_background(user_id: str, repository_ids: list[str]) -> None:
+    db = SessionLocal()
+    try:
+        repos = (
+            db.query(GitHubRepository)
+            .filter(GitHubRepository.user_id == user_id, GitHubRepository.id.in_(repository_ids))
+            .all()
+        )
+        for repo in repos:
+            if repo_has_embeddings(db, user_id, repo.id):
+                continue
+            if not isinstance(repo.code_analysis_snapshot, dict):
+                continue
+            try:
+                embed_repo_files(db=db, user_id=user_id, repo_id=repo.id, code_context=repo.code_analysis_snapshot)
+            except Exception as exc:
+                db.rollback()
+                logger.warning("Background embedding failed for %s: %s", repo.full_name, exc)
+    finally:
+        db.close()
 
 
 @router.get("", response_model=list[SourceOut])
@@ -52,6 +77,7 @@ def list_github_repositories(db: Session = Depends(get_db), user: User = Depends
 @router.post("/github/repositories/selection", response_model=list[RepositoryOut])
 def select_github_repositories(
     payload: RepositorySelectionIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
 ) -> list[GitHubRepository]:
@@ -64,6 +90,9 @@ def select_github_repositories(
     for repo in repos:
         repo.selected_for_analysis = repo.id in repository_ids
     db.commit()
+
+    if repository_ids:
+        background_tasks.add_task(precompute_repo_embeddings_background, user.id, list(repository_ids))
     return list_github_repositories(db, user)
 
 

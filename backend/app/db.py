@@ -25,10 +25,15 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    from app import models  # noqa: F401
+    from app import models
 
     # Ensure pgvector extension exists for Postgres before creating tables
     if engine.dialect.name == "postgresql":
+        if models.Vector is None:
+            raise RuntimeError(
+                "Postgres RAG storage requires the Python 'pgvector' package. "
+                "Install backend dependencies with `pip install -e .`."
+            )
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 

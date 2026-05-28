@@ -5,6 +5,7 @@ import { createAnalysis, reviewAnalysis } from "@/app/actions";
 import { backendFetch } from "@/lib/backend";
 import type { Evaluation, Repository } from "@/lib/types";
 import { PendingButton } from "@/components/PendingButton";
+import { AnalysisStatusPoller } from "@/components/AnalysisStatusPoller";
 
 function ListBlock({ title, items }: { title: string; items: string[] | null }) {
   if (!items?.length) return null;
@@ -46,9 +47,10 @@ function getOverallCipherScore(evaluation: Evaluation | null) {
   };
 }
 
-export default async function AnalysisPage() {
+export default async function AnalysisPage({ searchParams }: { searchParams?: Promise<{ error?: string | string[] }> }) {
   const session = await auth();
   if (!session) redirect("/login");
+  const resolvedSearchParams = await Promise.resolve(searchParams);
 
   const [evaluation, repositories] = await Promise.all([
     backendFetch<Evaluation | null>("/analysis/latest"),
@@ -62,6 +64,10 @@ export default async function AnalysisPage() {
 
   const reviewLabel = evaluation ? (evaluation.reviewed ? "Reviewed" : "Needs review") : "No analysis";
   const statusLabel = evaluation?.status ? evaluation.status.charAt(0).toUpperCase() + evaluation.status.slice(1) : "Idle";
+  const analysisInProgress = evaluation?.status === "queued" || evaluation?.status === "running";
+  const errorMessage = Array.isArray(resolvedSearchParams?.error)
+    ? resolvedSearchParams.error[0]
+    : resolvedSearchParams?.error;
 
   return (
     <>
@@ -94,8 +100,14 @@ export default async function AnalysisPage() {
           </div>
         </div>
         <form action={createAnalysis}>
-          <PendingButton pendingLabel="Analyzing signal..."><RefreshCcw size={16} /> Generate new analysis</PendingButton>
+          <PendingButton pendingLabel="Starting analysis..."><RefreshCcw size={16} /> Generate new analysis</PendingButton>
         </form>
+        {errorMessage && (
+          <div className="card">
+            <h3>Analysis error</h3>
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{errorMessage}</pre>
+          </div>
+        )}
       </section>
 
       {!evaluation && <p className="muted">No analysis yet.</p>}
@@ -104,6 +116,7 @@ export default async function AnalysisPage() {
         <section className="stack">
           <span className="status">{evaluation.status}{evaluation.reviewed ? " reviewed" : ""}</span>
           {evaluation.error && <p className="muted">{evaluation.error}</p>}
+          {analysisInProgress && <AnalysisStatusPoller initialStatus={evaluation.status} />}
           <div className="panel stack">
             <h2>Summary</h2>
             <p>{evaluation.summary}</p>

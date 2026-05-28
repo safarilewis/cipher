@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./adpt.db"
     redis_url: str = "redis://localhost:6379/0"
     backend_session_secret: str = "dev-secret"
+    init_db_on_startup: bool = True
     auth_trust_dev_headers: bool = True
     analysis_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: str | None = None

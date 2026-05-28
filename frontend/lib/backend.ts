@@ -39,8 +39,8 @@ export async function backendFetch<T>(path: string, init: RequestInit = {}): Pro
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Backend request failed with ${response.status}`);
+    const message = await readBackendError(response);
+    throw new Error(`Backend request failed for ${path} (${response.status}): ${message}`);
   }
 
   if (response.status === 204) {
@@ -68,4 +68,32 @@ async function parseJsonResponse<T>(response: Response, path: string): Promise<T
   }
 
   return JSON.parse(body) as T;
+}
+
+async function readBackendError(response: Response): Promise<string> {
+  const body = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      if (typeof parsed === "string" && parsed.trim()) {
+        return parsed;
+      }
+      if (parsed && typeof parsed === "object") {
+        const detail = (parsed as { detail?: unknown; message?: unknown }).detail ?? (parsed as { message?: unknown }).message;
+        if (typeof detail === "string" && detail.trim()) {
+          return detail;
+        }
+        if (detail != null) {
+          return JSON.stringify(detail);
+        }
+      }
+    } catch {
+      // Fall back to the raw body below.
+    }
+  }
+
+  const trimmed = body.trim();
+  return trimmed || `HTTP ${response.status}`;
 }

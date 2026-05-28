@@ -5,6 +5,10 @@ import type { ProfileSection } from "@/lib/types";
 import { deleteProfileSection, saveProfileSection, updateProfileSection } from "@/app/actions";
 import { PendingButton } from "@/components/PendingButton";
 
+function toMonthValue(date: string | null) {
+  return date?.slice(0, 7) ?? "";
+}
+
 function SectionCard({ section }: { section: ProfileSection }) {
   return (
     <article className="card stack section-card">
@@ -41,8 +45,8 @@ function SectionCard({ section }: { section: ProfileSection }) {
         <label className="field"><span>Title</span><input name="title" defaultValue={section.title} required /></label>
         <label className="field"><span>Organization</span><input name="organization" defaultValue={section.organization ?? ""} /></label>
         <div className="section-card-dates">
-          <label className="field"><span>Start date</span><input name="startDate" defaultValue={section.start_date ?? ""} placeholder="YYYY-MM or YYYY-MM-DD" /></label>
-          <label className="field"><span>End date</span><input name="endDate" defaultValue={section.end_date ?? ""} placeholder="YYYY-MM or YYYY-MM-DD" /></label>
+          <label className="field"><span>Start date</span><input name="startDate" type="month" defaultValue={toMonthValue(section.start_date)} /></label>
+          <label className="field"><span>End date</span><input name="endDate" type="month" defaultValue={toMonthValue(section.end_date)} /></label>
         </div>
         <label className="field"><span>Description</span><textarea name="description" defaultValue={section.description ?? ""} /></label>
         <label className="field"><span>URL</span><input name="url" defaultValue={section.url ?? ""} /></label>
@@ -84,8 +88,8 @@ export default async function DashboardProfilePage() {
           <label className="field"><span>Title</span><input name="title" required /></label>
           <label className="field"><span>Organization</span><input name="organization" /></label>
           <div className="section-card-dates">
-            <label className="field"><span>Start date</span><input name="startDate" placeholder="YYYY-MM or YYYY-MM-DD" /></label>
-            <label className="field"><span>End date</span><input name="endDate" placeholder="YYYY-MM or YYYY-MM-DD" /></label>
+            <label className="field"><span>Start date</span><input name="startDate" type="month" /></label>
+            <label className="field"><span>End date</span><input name="endDate" type="month" /></label>
           </div>
           <label className="field"><span>Description</span><textarea name="description" /></label>
           <label className="field"><span>URL</span><input name="url" /></label>
