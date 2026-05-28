@@ -1,6 +1,6 @@
-# cipher
+# Cipher
 
-cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
+Cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
 
 - GitHub repository evidence
 - LeetCode progress snapshots
