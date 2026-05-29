@@ -522,13 +522,14 @@ OUTPUT REQUIREMENTS
 - role_fit: 3-6 role fits, each marked strong, partial, or unsupported with evidence and gaps.
 - interview_questions: 3-5 recruiter screening or technical follow-up questions tailored to the evidence.
 - recruiter_risks: 2-5 concrete verification points. Keep them fair and evidence-based.
-- recruiter_copy: an honest, polished hiring brief calibrated to career stage. Use this structure in plain text: Recommendation: ... Best-fit roles: ... Why interview: ... Verify: ... Evidence basis: ... Then include COMPETENCE_RANKING on one line.
+- recruiter_copy: an honest, polished hiring brief calibrated to career stage. Use this structure in plain text: Hiring brief: ... Why interview: ... Verify: ... Evidence basis: ... Then include COMPETENCE_RANKING on one line. End with FINAL_RECOMMENDATION: ... naming the roles/levels they should be considered for and any follow-up evaluations needed.
 
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
-- Provide a clear, human-readable hiring brief intended for the recruiter as the first part of `recruiter_copy`. It should answer: should this person be interviewed, for what role/level, why, and what should be verified. Avoid JSON or list markup inside this paragraph.
+- Provide a clear, human-readable hiring brief intended for the recruiter as the first part of `recruiter_copy`. It should answer: should this person be interviewed, why, and what should be verified. Avoid JSON or list markup inside this paragraph.
 - After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
     COMPETENCE_RANKING: Code Quality — Proficient (76); Delivery — Developing (62); Algorithms — Strong (85).
 - For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
+- End `recruiter_copy` with a final recommendation section labeled `FINAL_RECOMMENDATION:`. It must explicitly state the roles/levels the candidate should be considered for and the possible evaluations or screens needed next, such as code review, pair-programming, system design, algorithms, product/backend/frontend depth, ownership verification, or resume/project walkthrough. Keep it concise and evidence-calibrated.
 
 CITATION STYLE
 - When referring to evidence, prefer concise APA-like parenthetical citations in the form `(source, detail)` or `(source, detail; source, detail)`.
@@ -1170,7 +1171,12 @@ def fallback_analysis(payload: dict) -> dict:
         ],
         "interview_questions": [],
         "recruiter_risks": ["Full recruiter decision support is unavailable in fallback mode."],
-        "recruiter_copy": "Evaluation unavailable in fallback mode.",
+        "recruiter_copy": (
+            "Hiring brief: Evaluation unavailable in fallback mode. Why interview: insufficient generated evidence. "
+            "Verify: run analysis with an API key and reviewed source data. Evidence basis: fallback mode only. "
+            "COMPETENCE_RANKING: Code Quality — Insufficient (null low); Delivery — Insufficient (null low); Algorithms — Insufficient (null low). "
+            "FINAL_RECOMMENDATION: Do not make a role recommendation until full analysis is available; rerun evaluation with code review and profile evidence."
+        ),
     }
 
 

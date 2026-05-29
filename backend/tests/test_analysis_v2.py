@@ -637,6 +637,12 @@ def test_extract_anthropic_tool_input_raises_when_missing():
         extract_anthropic_tool_input(response, ANTHROPIC_TOOL_NAME)
 
 
+def test_recruiter_copy_prompt_requires_final_recommendation():
+    assert "FINAL_RECOMMENDATION:" in EVALUATION_INSTRUCTIONS
+    assert "roles/levels they should be considered for" in EVALUATION_INSTRUCTIONS
+    assert "possible evaluations or screens needed next" in EVALUATION_INSTRUCTIONS
+
+
 def test_normalize_overall_score_reweights_algorithms_lower():
     skill_model = {
         "code_quality": {"score": 80},
