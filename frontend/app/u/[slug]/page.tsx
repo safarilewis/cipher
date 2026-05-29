@@ -224,7 +224,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
               <div>
                 <span className="status">Verified Developer Profile</span>
                 <h1>{displayName}</h1>
-                <p className="public-handle">cipher.so/{profile.user.slug}</p>
+                <p className="public-handle">cipher.so/u/{profile.user.slug}</p>
               </div>
             </div>
             <p className="public-headline">{headline}</p>

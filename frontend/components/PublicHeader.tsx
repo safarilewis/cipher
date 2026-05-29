@@ -10,7 +10,7 @@ export function PublicHeader() {
       <nav className="nav">
         <Link href="/#how">How It Works</Link>
         <Link href="/#signal">Signal</Link>
-        <Link href="/#pricing">Pricing</Link>
+        <a href="https://github.com/safarilewis/new-adpt" target="_blank" rel="noreferrer">GitHub</a>
         <span className="nav-sep" />
         <Link className="btn-nav" href="/login">Log In</Link>
         <Link className="btn-nav btn-nav-primary" href="/signup">Connect GitHub -&gt;</Link>
