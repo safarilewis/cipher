@@ -32,8 +32,11 @@ services:
       - key: ANTHROPIC_MODEL
         sync: false
 
+  - type: redis
+    name: cipher-redis
+    ipAllowList: []
+
 databases:
   - name: adpt-postgres
     databaseName: adpt
     user: adpt
-

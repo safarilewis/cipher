@@ -1,4 +1,6 @@
+import asyncio
 import base64
+import logging
 from datetime import datetime
 
 import httpx
@@ -9,7 +11,10 @@ from app.models import ConnectedAccount, GitHubRepository, SourceKind, User
 
 GITHUB_API = "https://api.github.com"
 COMMIT_PAGE_SIZE = 100
+RECENT_COMMIT_LIMIT = 8
 MAX_TREE_PATHS = 100
+MAX_REVIEW_FILES = 30
+MAX_FILE_CONTENT_CHARS = 20000
 KEY_FILE_NAMES = {
     "README.md",
     "readme.md",
@@ -48,10 +53,14 @@ IGNORED_REVIEW_FILE_SUFFIXES = (
     ".dylib",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def is_committed_env_file(path: str) -> bool:
     lowered = path.lower()
     file_name = lowered.split("/")[-1]
+    if file_name.endswith((".example", ".sample", ".template", ".dist")):
+        return False
     return (
         file_name == ".env"
         or file_name.startswith(".env.")
@@ -117,60 +126,104 @@ async def fetch_commit_count(
         page += 1
 
 
-async def fetch_all_time_commit_count(
+async def fetch_recent_commits(
     client: httpx.AsyncClient,
     full_name: str,
     access_token: str | None = None,
     author: str | None = None,
-) -> int:
-    return await fetch_commit_count(client, full_name, access_token, author)
+    limit: int = RECENT_COMMIT_LIMIT,
+) -> list[dict]:
+    params: dict[str, str | int] = {"per_page": limit, "page": 1}
+    if author:
+        params["author"] = author
+    response = await client.get(
+        f"{GITHUB_API}/repos/{full_name}/commits",
+        params=params,
+        headers=github_headers(access_token),
+    )
+    if response.status_code in {204, 409, 422}:
+        return []
+    response.raise_for_status()
+    commits = response.json()
+    if not isinstance(commits, list):
+        return []
+    output = []
+    for commit in commits[:limit]:
+        commit_data = commit.get("commit") or {}
+        author_data = commit_data.get("author") or {}
+        message = str(commit_data.get("message") or "").splitlines()[0].strip()
+        output.append(
+            {
+                "sha": str(commit.get("sha") or "")[:12],
+                "message": message[:160],
+                "authored_at": author_data.get("date"),
+                "url": commit.get("html_url"),
+            }
+        )
+    return output
 
 
-async def fetch_commit_counts(
+async def fetch_repo_metadata(
     repos: list[dict],
     access_token: str | None = None,
     author: str | None = None,
-) -> dict[str, int]:
+    concurrency: int = 6,
+) -> dict[str, dict]:
+    """Fetch commit count + recent commits per repo in a single concurrent pass.
+
+    Replaces three sequential gathers (commit_counts, all_time_commit_counts,
+    recent_commit_summaries) — the all_time variant was identical to commit_counts,
+    so it's collapsed; the remaining two run concurrently per repo on a shared client.
+    """
+    if not repos:
+        return {}
+    semaphore = asyncio.Semaphore(concurrency)
     async with httpx.AsyncClient(timeout=20) as client:
-        results = await asyncio_gather_limited(
-            [lambda repo=repo: fetch_commit_count(client, repo["full_name"], access_token, author) for repo in repos],
-            limit=6,
-        )
-    return {repo["full_name"]: count for repo, count in zip(repos, results, strict=False)}
+        async def gather_one(repo):
+            full_name = repo["full_name"]
+            async with semaphore:
+                try:
+                    count, recent = await asyncio.gather(
+                        fetch_commit_count(client, full_name, access_token, author),
+                        fetch_recent_commits(client, full_name, access_token, author),
+                    )
+                except httpx.HTTPError:
+                    return full_name, {"commit_count": 0, "recent_commits": []}
+            return full_name, {"commit_count": count, "recent_commits": recent if isinstance(recent, list) else []}
+        results = await asyncio.gather(*(gather_one(repo) for repo in repos))
+    return dict(results)
 
 
-async def fetch_all_time_commit_counts(
+async def fetch_all_repo_code_contexts(
     repos: list[dict],
     access_token: str | None = None,
-    author: str | None = None,
-) -> dict[str, int]:
-    async with httpx.AsyncClient(timeout=20) as client:
-        results = await asyncio_gather_limited(
-            [lambda repo=repo: fetch_all_time_commit_count(client, repo["full_name"], access_token, author) for repo in repos],
-            limit=6,
-        )
-    return {repo["full_name"]: count for repo, count in zip(repos, results, strict=False)}
+    concurrency: int = 8,
+) -> dict[str, dict | None]:
+    if not repos:
+        return {}
+    semaphore = asyncio.Semaphore(concurrency)
 
-
-async def asyncio_gather_limited(tasks, limit: int) -> list:
-    import asyncio
-
-    semaphore = asyncio.Semaphore(limit)
-
-    async def run(task):
+    async def run(repo):
+        full_name = repo["full_name"]
         async with semaphore:
             try:
-                return await task()
-            except httpx.HTTPError:
-                return 0
+                context = await asyncio.to_thread(fetch_repo_code_context, full_name, access_token)
+                return full_name, context
+            except Exception as exc:
+                logger.warning("Code context sync failed for %s: %s", full_name, exc)
+                return full_name, None
 
-    return await asyncio.gather(*(run(task) for task in tasks))
+    results = await asyncio.gather(*(run(repo) for repo in repos))
+    return dict(results)
 
 
 async def sync_github(db: Session, user: User, username: str, access_token: str | None = None) -> ConnectedAccount:
     repos = await fetch_github_repositories(username, access_token)
-    commit_counts = await fetch_commit_counts(repos, access_token, author=username)
-    all_time_commit_counts = await fetch_all_time_commit_counts(repos, access_token, author=username)
+    metadata, code_contexts = await asyncio.gather(
+        fetch_repo_metadata(repos, access_token, author=username),
+        fetch_all_repo_code_contexts(repos, access_token),
+    )
+
     account = (
         db.query(ConnectedAccount)
         .filter(ConnectedAccount.user_id == user.id, ConnectedAccount.kind == SourceKind.github)
@@ -182,33 +235,39 @@ async def sync_github(db: Session, user: User, username: str, access_token: str 
 
     account.external_username = username
     account.access_token = access_token
+    total_commit_count = sum(meta["commit_count"] for meta in metadata.values())
     account.raw_snapshot = {
         "repository_count": len(repos),
-        "total_commit_count": sum(commit_counts.values()),
-        "all_time_commit_count": sum(all_time_commit_counts.values()),
+        "total_commit_count": total_commit_count,
+        "all_time_commit_count": total_commit_count,
+        "recent_commit_count": sum(len(meta["recent_commits"]) for meta in metadata.values()),
         "synced_from": "github",
     }
     account.last_synced_at = datetime.utcnow()
 
+    existing_records = {
+        record.full_name: record
+        for record in db.query(GitHubRepository).filter(GitHubRepository.user_id == user.id).all()
+    }
     for repo in repos:
         full_name = repo["full_name"]
-        record = (
-            db.query(GitHubRepository)
-            .filter(GitHubRepository.user_id == user.id, GitHubRepository.full_name == full_name)
-            .one_or_none()
-        )
+        record = existing_records.get(full_name)
         if not record:
             record = GitHubRepository(user_id=user.id, full_name=full_name)
             db.add(record)
+        meta = metadata.get(full_name, {"commit_count": 0, "recent_commits": []})
         record.description = repo.get("description")
         record.language = repo.get("language")
         record.stars = repo.get("stargazers_count") or 0
         record.forks = repo.get("forks_count") or 0
         record.open_issues = repo.get("open_issues_count") or 0
-        record.commit_count = commit_counts.get(full_name, 0)
-        record.all_time_commit_count = all_time_commit_counts.get(full_name, 0)
+        record.commit_count = meta["commit_count"]
+        record.all_time_commit_count = meta["commit_count"]
         record.pushed_at = parse_github_datetime(repo.get("pushed_at"))
-        record.raw = repo
+        record.raw = {**repo, "recent_commits": meta["recent_commits"]}
+        context = code_contexts.get(full_name)
+        if context is not None:
+            record.code_analysis_snapshot = context
 
     db.commit()
     db.refresh(account)
@@ -225,24 +284,57 @@ def get_github_access_token(db: Session, user: User) -> str | None:
 
 
 def choose_key_paths(paths: list[str]) -> list[str]:
-    selected = []
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def add(path: str) -> None:
+        if path not in seen and len(selected) < MAX_REVIEW_FILES:
+            selected.append(path)
+            seen.add(path)
+
     for path in paths:
         if is_review_noise_path(path):
             continue
         if path in KEY_FILE_NAMES or path.split("/")[-1] in KEY_FILE_NAMES:
-            selected.append(path)
-    if len(selected) >= 6:
-        return selected[:6]
+            add(path)
 
-    preferred_prefixes = ("app/", "src/", "backend/app/", "frontend/app/", "lib/", "components/")
+    priority_patterns = (
+        "/api/",
+        "/routes/",
+        "/services/",
+        "/models/",
+        "/schemas",
+        "/components/",
+        "/hooks/",
+        "/lib/",
+        "/utils/",
+        "/tests/",
+        "/test_",
+        ".test.",
+        ".spec.",
+        "docker",
+        "compose",
+        "migration",
+        "alembic",
+    )
+    preferred_prefixes = ("app/", "src/", "backend/app/", "frontend/app/", "lib/", "components/", "pages/", "server/", "tests/")
     for path in paths:
         if is_review_noise_path(path):
             continue
-        if path.endswith((".py", ".ts", ".tsx", ".js")) and path.startswith(preferred_prefixes):
-            selected.append(path)
-        if len(selected) >= 6:
-            break
-    return selected[:6]
+        normalized = f"/{path.lower()}"
+        if path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java")) and (
+            path.startswith(preferred_prefixes) or any(pattern in normalized for pattern in priority_patterns)
+        ):
+            add(path)
+
+    source_suffixes = (".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".cs", ".rb", ".php")
+    for path in paths:
+        if is_review_noise_path(path):
+            continue
+        if path.endswith(source_suffixes):
+            add(path)
+
+    return selected
 
 
 def is_review_noise_path(path: str) -> bool:
@@ -286,16 +378,16 @@ def fetch_content_text(client: httpx.Client, url: str, headers: dict[str, str]) 
     if payload.get("truncated") and payload.get("git_url"):
         blob_text = fetch_blob_content(client, payload.get("git_url"), headers)
         if blob_text:
-            return blob_text
+            return blob_text[:MAX_FILE_CONTENT_CHARS]
 
     if text:
-        return text
+        return text[:MAX_FILE_CONTENT_CHARS]
 
     download_url = payload.get("download_url")
     if download_url:
         raw_response = client.get(str(download_url), headers=headers)
         if raw_response.status_code == 200:
-            return raw_response.text
+            return raw_response.text[:MAX_FILE_CONTENT_CHARS]
     return ""
 
 

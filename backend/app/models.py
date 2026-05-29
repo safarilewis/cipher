@@ -120,6 +120,7 @@ class GeneratedEvaluation(Base):
     skill_model_v2: Mapped[dict | None] = mapped_column(JSON)
     career_stage: Mapped[dict | None] = mapped_column(JSON)
     signal_completeness: Mapped[dict | None] = mapped_column(JSON)
+    profile_signal_snapshot: Mapped[dict | None] = mapped_column(JSON)
     repository_evaluations: Mapped[list | None] = mapped_column(JSON)
     strengths: Mapped[list | None] = mapped_column(JSON)
     growth_areas: Mapped[list | None] = mapped_column(JSON)
@@ -129,4 +130,33 @@ class GeneratedEvaluation(Base):
     error: Mapped[str | None] = mapped_column(Text)
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+try:
+    from pgvector.sqlalchemy import Vector  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - local test envs may not install optional pgvector
+    Vector = None
+
+
+class CodeChunk(Base):
+    __tablename__ = "code_chunks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    repo_id: Mapped[str] = mapped_column(ForeignKey("github_repositories.id"), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column((Vector(1024) if Vector is not None else JSON), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ProfileEmbedding(Base):
+    __tablename__ = "profile_embeddings"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    source_text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column((Vector(1024) if Vector is not None else JSON), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

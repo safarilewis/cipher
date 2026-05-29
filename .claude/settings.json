@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_scoring.py::test_free_tier_refresh_blocks_before_14_days tests/test_scoring.py::test_next_free_tier_refresh_date_is_14_days_after_sync)",
+      "Bash(python -m pytest tests/test_scoring.py -v)"
+    ]
+  }
+}

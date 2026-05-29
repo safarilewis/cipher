@@ -20,7 +20,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    init_db()
+    if settings.init_db_on_startup:
+        init_db()
 
 
 @app.get("/health")

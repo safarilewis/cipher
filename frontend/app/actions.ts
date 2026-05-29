@@ -68,8 +68,9 @@ export async function updateProfileSection(formData: FormData) {
 
 export async function deleteProfileSection(formData: FormData) {
   const id = String(formData.get("id"));
+  const redirectTo = String(formData.get("redirectTo") ?? "/dashboard/profile");
   await backendFetch(`/profile/sections/${id}`, { method: "DELETE" });
-  redirect("/dashboard/profile");
+  redirect(redirectTo);
 }
 
 export async function updateProfileBasics(formData: FormData) {
@@ -100,7 +101,18 @@ export async function saveRepositorySelection(formData: FormData) {
 }
 
 export async function createAnalysis() {
-  await backendFetch("/analysis", { method: "POST" });
+  let errorMessage: string | null = null;
+
+  try {
+    await backendFetch("/analysis", { method: "POST" });
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : "Analysis failed";
+  }
+
+  if (errorMessage) {
+    redirect(`/dashboard/analysis?error=${encodeURIComponent(errorMessage)}`);
+  }
+
   redirect("/dashboard/analysis");
 }
 

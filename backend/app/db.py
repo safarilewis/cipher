@@ -25,7 +25,17 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    from app import models  # noqa: F401
+    from app import models
+
+    # Ensure pgvector extension exists for Postgres before creating tables
+    if engine.dialect.name == "postgresql":
+        if models.Vector is None:
+            raise RuntimeError(
+                "Postgres RAG storage requires the Python 'pgvector' package. "
+                "Install backend dependencies with `pip install -e .`."
+            )
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
     Base.metadata.create_all(bind=engine)
     ensure_lightweight_migrations()
@@ -77,7 +87,7 @@ def migrate_users_table(inspector) -> None:
 def migrate_generated_evaluations_table(inspector) -> None:
     existing = {column["name"] for column in inspector.get_columns("generated_evaluations")}
     statements = []
-    for column in ("skill_model_v2", "career_stage", "signal_completeness", "repository_evaluations"):
+    for column in ("skill_model_v2", "career_stage", "signal_completeness", "profile_signal_snapshot", "repository_evaluations"):
         if column not in existing:
             statements.append(f"ALTER TABLE generated_evaluations ADD COLUMN {column} JSON")
     if not statements:
