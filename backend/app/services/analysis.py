@@ -54,38 +54,6 @@ def normalize_overall_score(skill_model: dict) -> dict:
     return base_overall
 
 
-def count_end_to_end_systems(repository_evaluations: list | None) -> int:
-    if not repository_evaluations:
-        return 0
-    return sum(1 for repo in repository_evaluations if repo.get("complexity_tier") == "system")
-
-
-def floor_delivery_score(skill_model: dict, repository_evaluations: list | None) -> dict:
-    if not isinstance(skill_model, dict):
-        return skill_model
-
-    delivery = skill_model.get("delivery")
-    if not isinstance(delivery, dict):
-        return skill_model
-
-    system_count = count_end_to_end_systems(repository_evaluations)
-    if system_count < 3:
-        return skill_model
-
-    floored_delivery = dict(delivery)
-    current_score = floored_delivery.get("score")
-    if not isinstance(current_score, (int, float)) or isinstance(current_score, bool):
-        floored_delivery["score"] = 78
-    else:
-        floored_delivery["score"] = max(round(current_score, 1), 78)
-    if floored_delivery.get("confidence") == "low":
-        floored_delivery["confidence"] = "medium"
-
-    updated_skill_model = dict(skill_model)
-    updated_skill_model["delivery"] = floored_delivery
-    return updated_skill_model
-
-
 def scope_overall_score(skill_model: dict, career_stage: dict | None) -> dict:
     if not isinstance(skill_model, dict):
         return skill_model
@@ -185,7 +153,6 @@ def normalize_generated_analysis(generated: dict) -> dict:
         return normalized
 
     normalized_skill_model = dict(skill_model)
-    normalized_skill_model = floor_delivery_score(normalized_skill_model, normalized.get("repository_evaluations"))
     normalized_skill_model["overall"] = normalize_overall_score(normalized_skill_model)
     normalized_skill_model = scope_overall_score(normalized_skill_model, normalized.get("career_stage"))
     normalized["skill_model"] = normalized_skill_model
@@ -282,7 +249,7 @@ ANALYSIS_SCHEMA = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "stage": {"type": "string", "enum": list(CAREER_STAGES)},
+                "stage": {"type": "string", "enum": sorted(CAREER_STAGES)},
                 "confidence": {"type": "string", "enum": CONFIDENCE_LEVELS},
                 "signals_used": {"type": "array", "items": {"type": "string"}},
                 "graduation_proximity": {"type": "string", "enum": ["current", "recent", "distant", "unknown"]},
@@ -463,19 +430,20 @@ EVIDENCE HIERARCHY
 
 CAREER STAGE CONTEXT
 Read the career_stage object before writing anything. Your framing depends on it.
-- student/new_grad: evaluate relative to peers at this stage, not working engineers. Coursework repos are valid learning evidence. Do not penalize expected lack of production experience. Recruiter copy should fit internship or new grad roles.
+- student/new_grad: evaluate relative to peers at this stage, not working engineers. Coursework repos, hackathon projects, classroom projects, and self-directed builds are valid ability evidence. Do not penalize expected lack of production ownership, enterprise-grade deployment, CI/CD, monitoring, scalability work, or paid work experience. Recruiter copy should fit internship or new grad roles.
 - early: some production experience may be expected. Evaluate transition from coursework/projects toward real systems.
 - mid/senior: full engineering bar applies. Production quality, architecture decisions, and scale signal matter.
 
 PEER CALIBRATION AND ACCURACY
-- Score and describe the developer against the peer cohort implied by career_stage.scope: students against internship/new-grad peers, early-career developers against early-career peers, and mid/senior developers against practicing engineers at that level.
+- The Cipher score is a level-calibrated ability score, not an absolute senior-engineer score. Score and describe the developer against the peer cohort implied by career_stage.scope: students against internship/new-grad peers, early-career developers against early-career peers, and mid/senior developers against practicing engineers at that level.
 - Do not compare a student or new grad to a senior production engineer unless explicitly noting a future growth path.
 - Prefer conservative, evidence-backed scores over flattering scores. If the evidence is thin, lower confidence or return null instead of filling gaps with assumptions.
-- Calibrate high scores to unusually strong evidence for that cohort: multiple completed systems, concrete architecture choices, tests, deployed work, sustained activity, or clear algorithm implementations.
+- Calibrate high scores to unusually strong evidence for that cohort. For students/new grads, strong evidence can include completed projects, thoughtful decomposition, readable implementation, tests or examples, algorithm/coursework depth, clear READMEs, iteration over time, and evidence of learning velocity. For mid/senior candidates, strong evidence should include production-shaped architecture, maintainability, operational maturity, and scale-aware tradeoffs.
+- Treat production deployment, CI/CD, monitoring, cloud infrastructure, and enterprise architecture as bonus signals for student/new_grad profiles, not baseline requirements. Their absence may be a verification point only when the candidate explicitly claims production ownership or targets production-heavy roles.
 - Keep all percentile/ranking language scoped to the cohort. For example, use "strong for a new-grad profile" rather than "strong engineer" when career_stage is student or new_grad.
 
 COURSEWORK REPO POLICY
-Coursework-looking repositories are learning evidence. Assess code cleanliness, concept understanding, whether the developer went beyond minimum assignment work, and progression across repos. Do not penalize coursework repos for lacking production architecture.
+Coursework-looking repositories are learning evidence. Assess code cleanliness, concept understanding, whether the developer went beyond minimum assignment work, and progression across repos. Do not penalize coursework repos for lacking production architecture, deployment, monitoring, CI/CD, or enterprise packaging. If a coursework repo shows tests, clear structure, thoughtful modeling, or well-explained tradeoffs, reward that as strong evidence for intern/new-grad calibration.
 
 ALGORITHMS SIGNAL POLICY
 LeetCode is only a supporting signal when the payload includes a leetcode object. Repo evidence, code context, and project quality should dominate the algorithms assessment.
@@ -490,7 +458,7 @@ NEGATIVE SIGNAL POLICY
 - If committed env files exist, mention them as a caution flag; do not let them dominate the score unless they are the clearest evidence in the repo.
 
 CODE QUALITY SCORING
-Only score code_quality when rag_code_context or selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
+Only score code_quality when rag_code_context or selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity relative to the candidate's career stage. For student/new_grad profiles, value clear fundamentals, small but complete implementations, readable structure, and thoughtful explanation more than enterprise architecture.
 Return one repository_evaluation object per repository with RAG or selected code context. If no code context is available, return an empty array.
 If selected_repository_code_context_omissions is non-empty, treat those repositories as omitted due prompt budget constraints, not as missing user signal.
 
@@ -506,7 +474,7 @@ TEMPORAL ANALYSIS
 ARCHITECTURE SIGNAL POLICY
 - Each code_context includes architecture_signals from the actual file tree.
 - Populate architecture_signals_observed with concrete patterns: ["layered architecture", "CI workflows", "Docker setup", "migrations"].
-- Architecture observations push delivery and code_quality scores upward when production patterns are present.
+- Architecture observations push delivery and code_quality scores upward when production patterns are present. For intern/new-grad scoring, simpler architecture can still be high quality when it is appropriate to the project size and shows clear boundaries, readable data flow, and maintainable choices.
 - Cross-reference with temporal_signals — architectural maturity over time is a strong delivery signal.
 
 DEEPER CODE REASONING
@@ -520,24 +488,24 @@ RECRUITER DECISION AID
 - The output should help a recruiter decide whether to interview the candidate, for which role, and what to verify.
 - hiring_recommendation.decision must be one of: recommend, consider, hold, insufficient_evidence. Use recommend only when the evidence clearly supports an interview for the named level/role family. Use consider for promising but incomplete evidence. Use hold for meaningful concerns. Use insufficient_evidence when the profile lacks enough signal.
 - role_fit must map evidence to likely role fits such as internship, new grad, frontend, backend, full-stack, data, infrastructure, systems, or mobile. Do not infer role fit from languages alone; cite projects, files, commits, profile sections, or LeetCode stats when present.
-- recruiter_risks should be recruiter-relevant verification points, not nitpicks: thin code evidence, stale activity, mostly coursework/tutorial work, unclear ownership, no test/deployment evidence, missing work history, or weak role alignment.
+- recruiter_risks should be recruiter-relevant verification points, not nitpicks. For student/new_grad profiles, do not list missing enterprise deployment, lack of production work history, mostly coursework, or absent CI/CD as standalone risks. Use risks such as thin code evidence, stale activity, unclear ownership, copied/tutorial-heavy work, weak role alignment, or claimed experience that is not supported by evidence. For mid/senior profiles, missing tests, deployment, operational maturity, or production ownership can be material risks.
 - interview_questions must include 3-5 tailored questions. Each question should verify a specific claim, repo, manual section, or gap.
 - For every major claim, distinguish observed evidence from interpretation. Never present interpretation as fact.
 
 SCORING HEURISTICS
+- Score bands are cohort-relative. A student/new_grad can score in the 80s without enterprise deployment when evidence shows strong fundamentals, completed projects, clear code, and consistent learning for that stage. A mid/senior candidate needs stronger production and architecture evidence for the same band.
 - algorithms: strong provided LeetCode plus repo DSA -> 80-95; strong provided LeetCode alone -> 60-75; moderate provided LeetCode plus strong repo DSA -> 65-80; repo-only strong DSA -> 80-90; weak/minor available signal -> 25-45; no available signal -> null.
-- code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; poor architecture, weak projects, or generated-artifact-heavy repos should drop below the middle band; metadata only -> null.
-- code_quality: clean architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; metadata only -> null.
-- delivery: active commits under 90 days plus multiple projects/completions -> 70-100; 3+ end-to-end systems should not score below 78; moderate activity -> 40-70; low/dormant -> 20-40; no commit data -> null.
-- overall: weighted average of non-null dimensions: code_quality 0.45, delivery 0.40, algorithms 0.15. If fewer than two dimensions have scores, overall.score = null.
+- code_quality: clean, readable, appropriately scoped architecture with code context -> 70-100; mixed quality -> 40-70; unclear structure -> 20-40; poor structure, weak projects, or generated-artifact-heavy repos should drop below the middle band; metadata only -> null. For student/new_grad profiles, "appropriately scoped" means the implementation fits the project size and shows fundamentals, not enterprise architecture.
+- delivery: active commits under 90 days plus multiple projects/completions -> 70-100; 3+ end-to-end systems are strong evidence but do not require a fixed minimum score; moderate activity -> 40-70; low/dormant -> 20-40; no commit data -> null. For student/new_grad profiles, completion, iteration, course/project progression, and usable demos count as delivery evidence even without production deployment.
+- overall: weighted average of non-null dimensions: code_quality 0.50, delivery 0.35, algorithms 0.15. If fewer than two dimensions have scores, overall.score = null.
 
 SCORING ANCHORS
-- Treat architecture problems as first-class issues: missing boundaries, ad hoc coupling, lack of tests, or weak separation of concerns should lower code_quality even if the repo has many files.
+- Treat architecture problems as first-class issues relative to project size and candidate level: missing boundaries, ad hoc coupling, lack of tests for complex logic, or weak separation of concerns should lower code_quality even if the repo has many files. Do not require production-scale boundaries for simple student/new_grad projects.
 - Treat polished boilerplate or auto-generated structure as low signal unless the developer made clear engineering choices on top of it.
 - Treat LeetCode as evidence of algorithm practice only when the payload includes it, not system design, code quality, or product maturity.
 - Treat strong repo-based DSA as a top-tier algorithms signal; that should commonly land in the 80s when the repo evidence is clear and specific.
-- Treat 3 or more end-to-end systems as a strong delivery signal; delivery.score should be floored at 78 when that evidence is present.
-- Treat live, deployed, actively maintained, or otherwise production-shaped projects as system-tier repositories.
+- Treat 3 or more end-to-end systems as a strong delivery signal, while still scoring delivery from the full evidence mix.
+- Treat live, deployed, actively maintained, or otherwise production-shaped projects as system-tier repositories. For student/new_grad profiles, a non-deployed but complete repo can still be strong delivery evidence when it has clear functionality, meaningful implementation, and enough context to review.
 - Treat commit count as activity only; do not assume strong delivery from raw commit volume if the work is repetitive, generated, or trivial.
 
 OUTPUT REQUIREMENTS
@@ -559,7 +527,7 @@ OUTPUT REQUIREMENTS
 HUMAN-READABLE ANALYSIS & COMPETENCE RANKING (required)
 - Provide a clear, human-readable hiring brief intended for the recruiter as the first part of `recruiter_copy`. It should answer: should this person be interviewed, for what role/level, why, and what should be verified. Avoid JSON or list markup inside this paragraph.
 - After that paragraph in the same `recruiter_copy` string, include a short "Competence ranking" section labeled `COMPETENCE_RANKING:` followed by a concise ranked list (single-line entries separated by semicolons) of the primary skill dimensions with both a qualitative label and numeric score, e.g.
-    COMPETENCE_RANKING: Code Quality — Proficient (78); Delivery — Developing (62); Algorithms — Strong (85).
+    COMPETENCE_RANKING: Code Quality — Proficient (76); Delivery — Developing (62); Algorithms — Strong (85).
 - For each skill include: name, qualitative label (Expert / Proficient / Developing / Insufficient), numeric 0-100 score or `null` if insufficient evidence, and a one-word confidence (`high`/`medium`/`low`) in parentheses after the score. Keep the entire competence ranking as a single line or sentence so it remains valid JSON string content.
 
 CITATION STYLE
@@ -1449,6 +1417,14 @@ def generate_with_anthropic(payload: dict) -> dict:
 
     client = Anthropic(api_key=settings.anthropic_api_key)
     user_prompt = build_evaluation_input(payload)
+    # The stable prefix is `tools` (ANALYSIS_SCHEMA) followed by `system`
+    # (EVALUATION_INSTRUCTIONS); the per-developer payload is the volatile suffix
+    # in the user turn. Render order is tools -> system -> messages, so the single
+    # cache_control breakpoint on the last system block caches the tool schema and
+    # the instructions together. This prefix is byte-identical across every
+    # developer analysis, so each run after the first reads it from cache (~0.1x
+    # input cost) instead of reprocessing it. A 1h TTL keeps it warm across the
+    # gaps between sporadic background analyses.
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=4096,
@@ -1456,7 +1432,7 @@ def generate_with_anthropic(payload: dict) -> dict:
             {
                 "type": "text",
                 "text": EVALUATION_INSTRUCTIONS,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
             }
         ],
         tools=[
@@ -1469,6 +1445,15 @@ def generate_with_anthropic(payload: dict) -> dict:
         tool_choice={"type": "tool", "name": ANTHROPIC_TOOL_NAME},
         messages=[{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
     )
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        logger.info(
+            "Anthropic analysis token usage: input=%s cache_read=%s cache_write=%s output=%s",
+            getattr(usage, "input_tokens", None),
+            getattr(usage, "cache_read_input_tokens", None),
+            getattr(usage, "cache_creation_input_tokens", None),
+            getattr(usage, "output_tokens", None),
+        )
     return extract_anthropic_tool_input(response, ANTHROPIC_TOOL_NAME)
 
 

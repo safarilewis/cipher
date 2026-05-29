@@ -26,7 +26,6 @@ from app.services.analysis import (
     legacy_project_complexity_notes,
     legacy_skill_model,
     limit_code_context_for_prompt,
-    floor_delivery_score,
     normalize_generated_analysis,
     normalize_overall_score,
     run_analysis,
@@ -295,7 +294,7 @@ def test_generate_with_anthropic_uses_cached_system_and_tool_use(monkeypatch):
         {
             "type": "text",
             "text": EVALUATION_INSTRUCTIONS,
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
         }
     ]
     assert captured["tools"] == [
@@ -712,25 +711,6 @@ def test_normalize_generated_analysis_parses_json_string_fields():
     assert isinstance(normalized["skill_model"], dict)
     assert normalized["career_stage"] == {"stage": "student"}
     assert normalized["repository_evaluations"][0]["full_name"] == "ada/app"
-
-
-def test_floor_delivery_score_raises_three_systems_to_minimum_78():
-    skill_model = {
-        "code_quality": {"score": 72},
-        "delivery": {"score": 61, "confidence": "low", "stage_context": "", "basis": [], "prose": ""},
-        "algorithms": {"score": 84},
-        "overall": {"score": 0, "confidence": "low", "percentile_note": ""},
-    }
-    repository_evaluations = [
-        {"complexity_tier": "system"},
-        {"complexity_tier": "system"},
-        {"complexity_tier": "system"},
-    ]
-
-    updated = floor_delivery_score(skill_model, repository_evaluations)
-
-    assert updated["delivery"]["score"] == 78
-    assert updated["delivery"]["confidence"] == "medium"
 
 
 def test_normalize_overall_score_requires_two_dimensions():
