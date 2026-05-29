@@ -52,16 +52,27 @@ class Account:
         self.last_synced_at = last_synced_at
 
 
-def test_free_tier_refresh_allows_first_or_older_than_14_days():
+@pytest.fixture
+def refresh_days_14(monkeypatch):
+    """Pin the refresh interval so tests don't depend on the local .env value."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "app.services.refresh_policy.get_settings",
+        lambda: SimpleNamespace(free_tier_refresh_days=14),
+    )
+
+
+def test_free_tier_refresh_allows_first_or_older_than_14_days(refresh_days_14):
     assert_free_tier_refresh_allowed(None)
     assert_free_tier_refresh_allowed(Account(datetime.utcnow() - timedelta(days=free_tier_refresh_days(), minutes=1)))
 
 
-def test_free_tier_refresh_blocks_before_14_days():
+def test_free_tier_refresh_blocks_before_14_days(refresh_days_14):
     with pytest.raises(HTTPException):
         assert_free_tier_refresh_allowed(Account(datetime.utcnow() - timedelta(days=2)))
 
 
-def test_next_free_tier_refresh_date_is_14_days_after_sync():
+def test_next_free_tier_refresh_date_is_14_days_after_sync(refresh_days_14):
     synced_at = datetime(2026, 5, 1, 12, 0, 0)
     assert next_free_tier_refresh_at(Account(synced_at)) == datetime(2026, 5, 15, 12, 0, 0)

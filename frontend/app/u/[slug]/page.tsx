@@ -34,6 +34,25 @@ const sectionIcons: Record<ProfileSection["kind"], ComponentType<{ size?: number
   project: BriefcaseBusiness,
 };
 
+const languageIconSlugs: Record<string, string> = {
+  "c#": "csharp",
+  "c++": "cplusplus",
+  css: "css3",
+  go: "go",
+  html: "html5",
+  java: "java",
+  javascript: "javascript",
+  kotlin: "kotlin",
+  php: "php",
+  python: "python",
+  ruby: "ruby",
+  rust: "rust",
+  scala: "scala",
+  shell: "bash",
+  swift: "swift",
+  typescript: "typescript",
+};
+
 type SkillDimension = {
   score?: number | null;
   confidence?: string | null;
@@ -125,6 +144,21 @@ function getLanguageStats(repositories: Repository[]) {
   return [...byLanguage.entries()]
     .map(([language, stats]) => ({ language, ...stats }))
     .sort((left, right) => right.count - left.count || right.commits - left.commits || left.language.localeCompare(right.language));
+}
+
+function getLanguageIconUrl(language: string) {
+  const slug = languageIconSlugs[language.toLowerCase()];
+  return slug ? `https://cdn.jsdelivr.net/gh/devicons/devicon/icons/${slug}/${slug}-original.svg` : null;
+}
+
+function LanguageIcon({ language }: { language: string }) {
+  const iconUrl = getLanguageIconUrl(language);
+
+  return (
+    <div className="public-language-icon" aria-hidden="true">
+      {iconUrl ? <img src={iconUrl} alt="" /> : <Code2 size={18} />}
+    </div>
+  );
 }
 
 function SectionCard({ section }: { section: ProfileSection }) {
@@ -273,7 +307,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
             <div className="public-language-grid">
               {languages.slice(0, 10).map((language) => (
                 <article className="public-language-card" key={language.language}>
-                  <div className="public-language-icon" aria-hidden="true"><Code2 size={18} /></div>
+                  <LanguageIcon language={language.language} />
                   <div>
                     <h3>{language.language}</h3>
                     <p>{language.count} {language.count === 1 ? "Repository" : "Repositories"}</p>
