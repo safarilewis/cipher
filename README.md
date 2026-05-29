@@ -1,44 +1,42 @@
-# cipher
+# Cipher
 
-cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
+Cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
 
 - GitHub repository evidence
 - LeetCode progress snapshots
-- Structured manual career sections (experience, education, projects, and more)
+- Structured profile sections (experience, education, projects, etc.)
 - AI-generated analysis that must be reviewed before publishing
 
-Profiles are private by default and only become public after explicit user publication.
-Free-tier profile source refreshes are limited to once every 14 days after the initial connection.
+Profiles are private by default and are only publicly visible after explicit publication.
 
-## Repository layout
+## What the app does
 
-- `backend/` - FastAPI API, SQLAlchemy models, source ingestion, and analysis orchestration
-- `frontend/` - Next.js App Router app, GitHub auth flow, onboarding, dashboard, and public profile route
-- `website-draft/` - archived/experimental marketing site draft
-- `docker-compose.yml` - local Postgres, Redis, and backend services
+1. User signs in with GitHub in the frontend.
+2. Frontend signs a short-lived backend JWT (`HS256`) and calls the API.
+3. User connects GitHub and/or LeetCode sources.
+4. User curates profile sections.
+5. User generates analysis.
+6. User reviews analysis.
+7. User publishes and shares a public profile at `/u/[slug]`.
+
+Free-tier source refreshes are rate-limited (`FREE_TIER_REFRESH_DAYS`, default `14`).
+
+## Repository structure
+
+- `backend/` — FastAPI API, SQLAlchemy models, ingestion services, analysis orchestration, tests
+- `frontend/` — Next.js App Router app, Auth.js login, onboarding/dashboard/public profile UI
+- `docker-compose.yml` — local Postgres + Redis + backend service
 
 ## Tech stack
 
-- Backend: Python 3.11+, FastAPI, SQLAlchemy, Pydantic Settings, Uvicorn
-- Frontend: Next.js 15, React 19, TypeScript, Auth.js (next-auth v5 beta)
-- Data: PostgreSQL (default in `.env.example`), SQLite fallback for quick local runs
-- AI: OpenAI Responses API (with deterministic fallback when no API key is set)
+- **Backend:** Python 3.11+, FastAPI, SQLAlchemy, Pydantic Settings, Uvicorn
+- **Frontend:** Next.js 15, React 19, TypeScript, Auth.js (next-auth v5 beta)
+- **Data:** PostgreSQL (default), SQLite fallback for quick local runs
+- **AI providers:** OpenAI or Anthropic, with deterministic fallback if keys are missing
 
-## How it works
+## Quick start (Docker + local frontend)
 
-1. User authenticates with GitHub in the frontend.
-2. Frontend calls backend APIs using a signed HS256 bearer token.
-3. User connects GitHub and LeetCode sources.
-4. User adds profile sections (education, experience, project, etc.).
-5. User triggers analysis generation.
-6. User marks analysis as reviewed.
-7. User publishes profile and gets a public URL at `/u/[slug]`.
-
-Public profile API responses only include users that are both published and have a reviewed, ready analysis.
-
-## Quick start (Docker-first)
-
-This path gives you a running backend with Postgres + Redis quickly.
+Start backend dependencies and API:
 
 ```bash
 docker compose up --build
@@ -46,11 +44,11 @@ docker compose up --build
 
 Services:
 
-- Backend API: http://localhost:8000
-- Postgres: localhost:5432
-- Redis: localhost:6379
+- Backend API: `http://localhost:8000`
+- Postgres: `localhost:5432`
+- Redis: `localhost:6379`
 
-Then run the frontend separately:
+Start frontend in a second terminal:
 
 ```bash
 cd frontend
@@ -59,35 +57,28 @@ npm install
 npm run dev
 ```
 
-Frontend runs at http://localhost:3000.
+Frontend: `http://localhost:3000`
 
-## Local development (manual)
+## Manual local development
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 20+
-# cipher
-- Optional: Docker (for local Postgres/Redis)
-cipher is a resume-replacement developer profile platform. Instead of a static PDF, users build a live profile from:
-### 1) Start infra
+- Optional: Docker (for Postgres/Redis)
+
+### 1) Backend
 
 ```bash
-| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://adpt:adpt@localhost:5432/adpt` |
-| `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
-
-- Python web service (`cipher-api`)
-- Managed Postgres (`cipher-postgres`)
-- Managed Redis (`cipher-redis`)
 cd backend
 cp .env.example .env
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
-API docs become available at http://localhost:8000/docs.
+Backend docs: `http://localhost:8000/docs`
 
-### 3) Run frontend
+### 2) Frontend
 
 ```bash
 cd frontend
@@ -95,8 +86,6 @@ cp .env.example .env.local
 npm install
 npm run dev
 ```
-
-Open http://localhost:3000.
 
 ## Environment variables
 
@@ -104,60 +93,86 @@ Open http://localhost:3000.
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | No | SQLAlchemy URL. Defaults to SQLite if unset. Example: `postgresql+psycopg://adpt:adpt@localhost:5432/adpt` |
-| `REDIS_URL` | No | Redis connection string. |
+| `DATABASE_URL` | No | SQLAlchemy connection string. Defaults to SQLite if unset. |
+| `REDIS_URL` | No | Redis URL. |
 | `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
-| `AUTH_TRUST_DEV_HEADERS` | No | If `true`, backend can trust dev headers (`x-cipher-user-*`) for local/manual testing. Set `false` outside local dev. |
-| `ANALYSIS_PROVIDER` | No | Default analysis provider. Use `openai` for GPT or `anthropic` for Claude. Default: `openai`. |
-| `OPENAI_API_KEY` | No | Enables OpenAI analysis generation. If missing, fallback deterministic analysis is used. |
-| `OPENAI_MODEL` | No | OpenAI model name. Default: `gpt-5.2`. |
-| `ANTHROPIC_API_KEY` | No | Enables Anthropic analysis generation. If missing, fallback deterministic analysis is used. |
-| `ANTHROPIC_MODEL` | No | Anthropic model name. Default: `claude-sonnet-4-20250514`. |
-| `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for frontend. Default: `http://localhost:3000`. |
+| `AUTH_TRUST_DEV_HEADERS` | No | Trust `x-cipher-user-*` dev headers when `true` (local/manual testing only). |
+| `ANALYSIS_PROVIDER` | No | `openai` or `anthropic` (default `openai`). |
+| `OPENAI_API_KEY` | No | Enables OpenAI analysis. |
+| `OPENAI_MODEL` | No | OpenAI model name (default `gpt-5.2`). |
+| `ANTHROPIC_API_KEY` | No | Enables Anthropic analysis. |
+| `ANTHROPIC_MODEL` | No | Anthropic model name (default `claude-sonnet-4-20250514`). |
+| `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for frontend. |
+| `FREE_TIER_REFRESH_DAYS` | No | Source refresh cooldown window (default `14`). |
 
 ### Frontend (`frontend/.env.local`)
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `NEXTAUTH_URL` | Yes | Frontend base URL (local: `http://localhost:3000`). |
-| `AUTH_SECRET` | Yes | Auth.js secret for session signing. |
+| `NEXTAUTH_URL` | Yes | Frontend URL (local: `http://localhost:3000`). |
+| `AUTH_URL` | Yes | Auth.js URL (usually same as `NEXTAUTH_URL`). |
+| `AUTH_SECRET` | Yes | Auth.js session secret. |
 | `AUTH_GITHUB_ID` | Yes | GitHub OAuth app client ID. |
 | `AUTH_GITHUB_SECRET` | Yes | GitHub OAuth app client secret. |
-| `BACKEND_URL` | Yes | Backend base URL (local: `http://localhost:8000`). |
+| `BACKEND_URL` | Yes | Backend URL (local: `http://localhost:8000`). |
 | `BACKEND_SESSION_SECRET` | Yes | Must exactly match backend `BACKEND_SESSION_SECRET`. |
 
 ## Auth model
 
-- User signs in through GitHub using Auth.js.
-- Frontend mints a short backend JWT using `BACKEND_SESSION_SECRET` and sends it as `Authorization: Bearer <token>`.
-- Backend validates the token and resolves/creates a user record.
+- Frontend authenticates users with GitHub via Auth.js.
+- Frontend generates a backend bearer token (`sub`, `email`, `name`) signed with `BACKEND_SESSION_SECRET`.
+- Backend validates that token and resolves/creates the corresponding user.
 
-Important: the secret must match between frontend and backend in every environment.
+> `BACKEND_SESSION_SECRET` must match between frontend and backend in every environment.
 
 ## API overview
 
 Base URL: `http://localhost:8000`
 
-- `GET /health` - health check
-- `GET /profile` - current user profile
-- `PATCH /profile` - update name/headline/slug
-- `GET /profile/sections` - list manual sections
-- `POST /profile/sections` - create section
-- `PUT /profile/sections/{section_id}` - update section
-- `DELETE /profile/sections/{section_id}` - delete section
-- `GET /sources` - list connected sources
-- `POST /sources/github` - sync GitHub source
-- `POST /sources/leetcode` - sync LeetCode source
-- `DELETE /sources/{kind}` - disconnect a source
-- `GET /sources/leetcode/latest` - latest LeetCode snapshot
-- `GET /analysis/latest` - latest generated analysis
-- `POST /analysis` - create + run analysis
-- `POST /analysis/{evaluation_id}/review` - mark analysis reviewed
-- `POST /analysis/publish` - publish profile
-- `POST /analysis/unpublish` - unpublish profile
-- `GET /public/profiles/{slug}` - public profile payload
+### Health
 
-## Testing and checks
+- `GET /health` — service health check
+
+### Profile
+
+- `GET /profile` — current user profile
+- `PATCH /profile` — update profile fields (`name`, `headline`, `slug`, `career_stage_override`)
+- `GET /profile/sections` — list profile sections
+- `POST /profile/sections` — create section
+- `PUT /profile/sections/{section_id}` — update section
+- `DELETE /profile/sections/{section_id}` — delete section
+
+Section kinds:
+
+- `education`
+- `experience`
+- `certification`
+- `bootcamp`
+- `project`
+
+### Sources
+
+- `GET /sources` — list connected accounts and refresh metadata
+- `POST /sources/github` — connect/sync GitHub source
+- `GET /sources/github/repositories` — list imported repositories
+- `POST /sources/github/repositories/selection` — choose up to 20 repositories for analysis
+- `POST /sources/leetcode` — connect/sync LeetCode source
+- `GET /sources/leetcode/latest` — latest LeetCode snapshot
+- `DELETE /sources/{kind}` — disconnect `github` or `leetcode`
+
+### Analysis & publishing
+
+- `GET /analysis/latest` — latest generated analysis
+- `POST /analysis` — create and run analysis
+- `POST /analysis/{evaluation_id}/review` — mark a ready analysis as reviewed
+- `POST /analysis/publish` — publish profile (requires reviewed analysis)
+- `POST /analysis/unpublish` — unpublish profile
+
+### Public
+
+- `GET /public/profiles/{slug}` — public profile payload (only for published profiles)
+
+## Tests and checks
 
 Backend tests:
 
@@ -166,55 +181,51 @@ cd backend
 pytest
 ```
 
-Frontend production build check:
+Frontend build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-Optional frontend lint/test commands:
+Frontend tests:
 
 ```bash
 cd frontend
-npm run lint
 npm run test
 ```
+
+Frontend lint script exists (`npm run lint`), but Next.js may prompt for ESLint setup if a config is not yet initialized.
 
 ## Deployment
 
 ### Backend (Render)
 
-The repo includes `backend/render.yaml` for Render Blueprint-based setup:
+`backend/render.yaml` defines a Render Blueprint with:
 
-- Python web service (`cipher-api`)
-- Managed Postgres (`cipher-postgres`)
-- Managed Redis (`cipher-redis`)
+- Web service: `cipher-api`
+- Managed Postgres: `cipher-postgres`
+- Managed Redis: `cipher-redis`
 
-Set these securely in Render:
+Set at minimum:
 
 - `FRONTEND_ORIGIN`
 - `BACKEND_SESSION_SECRET`
-- `OPENAI_API_KEY` (optional)
+- AI provider keys (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) as needed
 
 ### Frontend (Vercel)
 
-Deploy `frontend/` as a Next.js project using `vercel.json` defaults.
+Deploy `frontend/` as a Next.js app (see `frontend/vercel.json`).
 
-Set env vars in Vercel:
+Set:
 
 - `NEXTAUTH_URL`
+- `AUTH_URL`
 - `AUTH_SECRET`
 - `AUTH_GITHUB_ID`
 - `AUTH_GITHUB_SECRET`
 - `BACKEND_URL`
-- `BACKEND_SESSION_SECRET` (must match Render backend)
-
-## Notes and limitations
-
-- There are no migration files yet; schema is initialized on backend startup.
-- Redis is provisioned and configured, with room for queue/worker expansion.
-- If OpenAI is unavailable, analysis still works via deterministic fallback output.
+- `BACKEND_SESSION_SECRET` (must match backend)
 
 ## License
 
