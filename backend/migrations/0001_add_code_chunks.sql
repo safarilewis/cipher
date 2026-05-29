@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS code_chunks (
   file_path VARCHAR(500),
   chunk_index INTEGER DEFAULT 0,
   content TEXT,
-  embedding vector(1536),
+  embedding vector(1024),
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
 );
 

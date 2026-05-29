@@ -75,6 +75,9 @@ class RepositoryOut(BaseModel):
     commit_count: int
     selected_for_analysis: bool
     pushed_at: datetime | None
+    code_analysis_available: bool = False
+    embedded_chunk_count: int = 0
+    embedding_status: Literal["not_selected", "pending", "embedded"] = "not_selected"
 
     model_config = {"from_attributes": True}
 

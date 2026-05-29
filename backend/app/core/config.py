@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.2"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
+    voyage_api_key: str | None = None
+    voyage_embedding_model: str = "voyage-2"
     frontend_origin: str = "http://localhost:3000"
     free_tier_refresh_days: int = 14
 

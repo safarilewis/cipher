@@ -47,7 +47,7 @@ def test_retrieve_chunks_returns_empty_for_sqlite(db_session):
 
 def test_embed_repo_files_stores_chunks_with_mocked_embeddings(db_session, monkeypatch):
     from app.models import CodeChunk, GitHubRepository, User
-    from app.services.embeddings import embed_repo_files
+    from app.services.embeddings import embed_repo_files, embed_repo_files_report
 
     user = User(id="u1", slug="ada")
     repo = GitHubRepository(id="r1", user_id="u1", full_name="ada/app")
@@ -55,27 +55,31 @@ def test_embed_repo_files_stores_chunks_with_mocked_embeddings(db_session, monke
     db_session.commit()
 
     class Settings:
-        openai_api_key = "test-key"
+        voyage_api_key = "test-key"
+        voyage_embedding_model = "voyage-2"
 
-    class FakeOpenAI:
+    class FakeVoyageClient:
         def __init__(self, api_key):
             assert api_key == "test-key"
 
     monkeypatch.setattr("app.services.embeddings.get_settings", lambda: Settings())
-    monkeypatch.setattr("app.services.embeddings.OpenAI", FakeOpenAI)
-    monkeypatch.setattr("app.services.embeddings.embed_batch", lambda client, texts: [[0.1] * 1536 for _ in texts])
+    monkeypatch.setattr("app.services.embeddings.create_voyage_client", FakeVoyageClient)
+    monkeypatch.setattr("app.services.embeddings.embed_batch", lambda client, texts, **kwargs: [[0.1] * 1024 for _ in texts])
 
-    stored = embed_repo_files(
+    code_context = {
+        "readme": "hello\nworld",
+        "key_files": [{"path": "app/main.py", "content": "def main():\n    return True"}],
+    }
+    report = embed_repo_files_report(
         db=db_session,
         user_id="u1",
         repo_id="r1",
-        code_context={
-            "readme": "hello\nworld",
-            "key_files": [{"path": "app/main.py", "content": "def main():\n    return True"}],
-        },
+        code_context=code_context,
     )
+    stored = embed_repo_files(db=db_session, user_id="u1", repo_id="r1", code_context=code_context)
 
     chunks = db_session.query(CodeChunk).filter(CodeChunk.repo_id == "r1").all()
+    assert report == {"chunks_pending": 2, "chunks_stored": 2, "errors": []}
     assert stored == 2
     assert {chunk.file_path for chunk in chunks} == {"README.md", "app/main.py"}
 
@@ -98,6 +102,24 @@ def test_build_rag_context_diversifies_files(monkeypatch, db_session):
 
     assert [chunk["file_path"] for chunk in architecture] == ["src/a.py", "src/a.py", "src/b.py", "src/c.py"]
     assert all(chunk["repo"] == "ada/app" for chunk in architecture)
+
+
+def test_build_rag_context_limits_readme_dominance(monkeypatch, db_session):
+    from app.services.embeddings import build_rag_context
+
+    chunks = [
+        {"repo_id": "r1", "file_path": "README.md", "chunk_index": 0, "content": "readme0"},
+        {"repo_id": "r1", "file_path": "README.md", "chunk_index": 1, "content": "readme1"},
+        {"repo_id": "r1", "file_path": "src/service.py", "chunk_index": 0, "content": "service"},
+        {"repo_id": "r1", "file_path": "tests/test_service.py", "chunk_index": 0, "content": "tests"},
+    ]
+
+    monkeypatch.setattr("app.services.embeddings.retrieve_chunks", lambda *args, **kwargs: chunks)
+
+    rag_context = build_rag_context(db_session, "u1", {"r1": "ada/app"}, top_k_per_query=3)
+    architecture = rag_context["architecture"]
+
+    assert [chunk["file_path"] for chunk in architecture] == ["README.md", "src/service.py", "tests/test_service.py"]
 
 
 def test_build_profile_search_text_assembles_query_friendly_blob():
@@ -152,7 +174,7 @@ def test_upsert_profile_embedding_writes_record(db_session, monkeypatch):
         skill_model_v2={"code_quality": {"prose": "tidy"}},
         strengths=["focus"],
     )
-    monkeypatch.setattr("app.services.embeddings.embed_query", lambda text: [0.1] * 1536)
+    monkeypatch.setattr("app.services.embeddings.embed_query", lambda text: [0.1] * 1024)
 
     record = upsert_profile_embedding(db_session, user, evaluation, repositories=[])
 

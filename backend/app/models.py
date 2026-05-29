@@ -148,7 +148,7 @@ class CodeChunk(Base):
     file_path: Mapped[str] = mapped_column(String(500))
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float] | None] = mapped_column((Vector(1536) if Vector is not None else JSON), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column((Vector(1024) if Vector is not None else JSON), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -157,6 +157,6 @@ class ProfileEmbedding(Base):
 
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
     source_text: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float] | None] = mapped_column((Vector(1536) if Vector is not None else JSON), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column((Vector(1024) if Vector is not None else JSON), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

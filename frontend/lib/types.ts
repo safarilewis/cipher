@@ -38,6 +38,9 @@ export type Repository = {
   commit_count: number;
   selected_for_analysis: boolean;
   pushed_at: string | null;
+  code_analysis_available: boolean;
+  embedded_chunk_count: number;
+  embedding_status: "not_selected" | "pending" | "embedded";
 };
 
 export type Evaluation = {

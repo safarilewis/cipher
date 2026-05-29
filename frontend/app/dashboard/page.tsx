@@ -129,7 +129,7 @@ export default async function DashboardPage() {
           <div className="activity-label">Profile basics</div>
           <label className="field"><span>Name</span><input name="name" defaultValue={profile.name ?? ""} /></label>
           <label className="field"><span>Headline</span><input name="headline" defaultValue={profile.headline ?? ""} /></label>
-          <label className="field"><span>Profile slug</span><input name="slug" defaultValue={profile.slug} pattern="[a-z0-9-]{3,80}" /></label>
+          <label className="field"><span>Profile slug</span><input name="slug" defaultValue={profile.slug} pattern="[a-z0-9\-]{3,80}" /></label>
           <PendingButton className="secondary" pendingLabel="Saving profile...">Save profile</PendingButton>
         </form>
 

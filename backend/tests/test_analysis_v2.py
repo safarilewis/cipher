@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.analysis import create_analysis, latest_analysis
-from app.api.sources import select_github_repositories
+from app.api.sources import precompute_repo_embeddings, select_github_repositories
 from app.db import Base
 from app.models import AnalysisStatus, GeneratedEvaluation, GitHubRepository, User
 from app.schemas import RepositorySelectionIn
@@ -16,6 +16,7 @@ from app.services.analysis import (
     EVALUATION_INSTRUCTIONS,
     assess_signal_completeness,
     build_analysis_payload,
+    compact_code_context_for_prompt,
     extract_anthropic_tool_input,
     fallback_analysis,
     generate_analysis,
@@ -26,6 +27,7 @@ from app.services.analysis import (
     legacy_skill_model,
     limit_code_context_for_prompt,
     floor_delivery_score,
+    normalize_generated_analysis,
     normalize_overall_score,
     run_analysis,
 )
@@ -199,6 +201,37 @@ def test_limit_code_context_for_prompt_respects_repo_and_char_budgets():
     assert any(item["full_name"] == "me/low-commit" for item in omissions)
 
 
+def test_compact_code_context_sends_readme_plus_four_high_signal_files():
+    context = {
+        "full_name": "me/app",
+        "readme": "r" * 4000,
+        "structure_sample": ["README.md", "package.json", "src/services/a.ts"],
+        "key_files": [
+            {"path": "README.md", "content": "duplicated readme"},
+            {"path": "src/features/noise.ts", "content": "n" * 5000},
+            {"path": "src/services/billing.ts", "content": "service"},
+            {"path": "src/models/user.ts", "content": "model"},
+            {"path": "src/api/users.ts", "content": "api"},
+            {"path": "tests/profile.test.ts", "content": "test"},
+            {"path": "src/components/Profile.tsx", "content": "component"},
+            {"path": "src/lib/auth.ts", "content": "lib"},
+            {"path": "package.json", "content": "{}"},
+            {"path": "src/utils/date.ts", "content": "util"},
+        ],
+    }
+
+    compacted = compact_code_context_for_prompt(context)
+    paths = [item["path"] for item in compacted["key_files"]]
+
+    assert len(paths) == 4
+    assert compacted["readme"].startswith("r")
+    assert len(compacted["readme"]) < len(context["readme"])
+    assert "README.md" not in paths
+    assert paths[0] == "package.json"
+    assert {"src/api/users.ts", "src/services/billing.ts", "src/models/user.ts"}.issubset(paths)
+    assert "tests/profile.test.ts" not in paths
+
+
 def test_generate_analysis_routes_to_openai(monkeypatch):
     class Settings:
         analysis_provider = "openai"
@@ -309,7 +342,7 @@ def test_build_payload_includes_temporal_signals():
         [{"full_name": "ada/app", "readme": "", "structure_sample": [], "key_files": []}],
     )
 
-    assert "rag_context" not in payload
+    assert payload["rag_code_context"] == {}
     assert "temporal_signals" in payload
 
 
@@ -417,7 +450,49 @@ def test_repository_selection_queues_embedding_precompute(monkeypatch):
     assert scheduled == [("u-select", ["r-select"])]
 
 
-def test_run_analysis_does_not_call_rag_during_evaluation(monkeypatch):
+def test_repository_precompute_fetches_missing_code_context_before_embedding(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    user = User(id="u-precompute", slug="precompute", name="Precompute")
+    repo = GitHubRepository(
+        id="r-precompute",
+        user_id=user.id,
+        full_name="precompute/app",
+        code_analysis_snapshot=None,
+    )
+    db.add_all([user, repo])
+    db.commit()
+
+    fetched_context = {
+        "full_name": "precompute/app",
+        "readme": "README",
+        "structure_sample": ["app/main.py"],
+        "key_files": [{"path": "app/main.py", "content": "print('hi')"}],
+    }
+    embedded = []
+
+    monkeypatch.setattr("app.api.sources.repo_has_embeddings", lambda db, user_id, repo_id: False)
+    monkeypatch.setattr("app.api.sources.get_github_access_token", lambda db, user: "gh-token")
+    monkeypatch.setattr(
+        "app.api.sources.fetch_repo_code_context",
+        lambda full_name, access_token=None: fetched_context,
+    )
+    monkeypatch.setattr(
+        "app.api.sources.embed_repo_files_report",
+        lambda db, user_id, repo_id, code_context: embedded.append((user_id, repo_id, code_context)) or {"chunks_pending": 1, "chunks_stored": 1, "errors": []},
+    )
+
+    precompute_repo_embeddings(db, user.id, [repo.id])
+
+    stored_repo = db.get(GitHubRepository, repo.id)
+    assert stored_repo.code_analysis_snapshot == fetched_context
+    assert embedded == [(user.id, repo.id, fetched_context)]
+
+
+def test_run_analysis_includes_precomputed_rag_during_evaluation(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
@@ -469,12 +544,78 @@ def test_run_analysis_does_not_call_rag_during_evaluation(monkeypatch):
         return generated
 
     monkeypatch.setattr("app.services.analysis.generate_analysis", fake_generate)
+    monkeypatch.setattr("app.services.analysis.repo_has_embeddings", lambda db, user_id, repo_id: True)
+    monkeypatch.setattr(
+        "app.services.analysis.build_rag_context",
+        lambda db, user_id, repo_id_to_full_name, top_k_per_query: {
+            "code_quality": [
+                {
+                    "repo": "ada/app",
+                    "repo_id": "r1",
+                    "file_path": "app/main.py",
+                    "chunk_index": 0,
+                    "content": "def handler(): return 'ok'",
+                }
+            ],
+            "architecture": [],
+            "algorithms": [],
+            "tests": [],
+        },
+    )
 
     result = run_analysis(db, user, evaluation)
 
     assert result.status == AnalysisStatus.ready
     assert result.summary == "Analysis completed."
-    assert "rag_context" not in captured_payload
+    assert captured_payload["rag_code_context"]["code_quality"][0]["file_path"] == "app/main.py"
+    assert captured_payload["rag_embedding_precompute"]["mode"] == "read_existing_only"
+    assert captured_payload["rag_embedding_precompute"]["chunks_stored"] == 0
+    assert result.profile_signal_snapshot["rag"]["chunk_count"] == 1
+
+
+def test_run_analysis_skips_embedding_when_chunks_are_missing(monkeypatch):
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    user = User(id="u-no-embed", slug="no-embed", name="No Embed")
+    repo = GitHubRepository(
+        id="r-no-embed",
+        user_id=user.id,
+        full_name="ada/no-embed",
+        selected_for_analysis=True,
+        code_analysis_snapshot={
+            "full_name": "ada/no-embed",
+            "readme": "README",
+            "structure_sample": ["src/service.py"],
+            "key_files": [{"path": "src/service.py", "content": "def handler(): return True"}],
+        },
+    )
+    evaluation = GeneratedEvaluation(id="e-no-embed", user_id=user.id, status=AnalysisStatus.queued)
+    db.add_all([user, repo, evaluation])
+    db.commit()
+
+    captured_payload = {}
+
+    def fake_generate(payload):
+        captured_payload.update(payload)
+        return fallback_analysis(payload)
+
+    monkeypatch.setattr("app.services.analysis.generate_analysis", fake_generate)
+    monkeypatch.setattr("app.services.analysis.repo_has_embeddings", lambda db, user_id, repo_id: False)
+    monkeypatch.setattr(
+        "app.services.analysis.build_rag_context",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("RAG should not run without stored chunks")),
+    )
+
+    result = run_analysis(db, user, evaluation)
+
+    assert result.status == AnalysisStatus.ready
+    assert captured_payload["rag_code_context"] == {}
+    assert captured_payload["rag_embedding_precompute"]["mode"] == "read_existing_only"
+    assert captured_payload["rag_embedding_precompute"]["missing"] == [{"repo": "ada/no-embed", "reason": "not_indexed"}]
+    assert captured_payload["selected_repository_code_context"][0]["key_files"][0]["path"] == "src/service.py"
 
 
 def test_extract_anthropic_tool_input_returns_matching_tool_block():
@@ -509,6 +650,68 @@ def test_normalize_overall_score_reweights_algorithms_lower():
 
     assert overall["score"] == 78.8
     assert overall["confidence"] == "high"
+
+
+def test_normalize_generated_analysis_defaults_missing_list_fields():
+    generated = {
+        "summary": "Anthropic returned most fields.",
+        "skill_model": {
+            "code_quality": {"score": 70},
+            "delivery": {"score": 68},
+            "algorithms": {"score": None},
+            "overall": {"score": None, "confidence": "low", "percentile_note": ""},
+        },
+        "career_stage": {"stage": "student"},
+    }
+
+    normalized = normalize_generated_analysis(generated)
+
+    assert normalized["repository_evaluations"] == []
+    assert normalized["strengths"] == []
+    assert normalized["growth_areas"] == []
+    assert normalized["evidence_highlights"] == []
+    assert normalized["recruiter_copy"] == ""
+
+
+def test_normalize_generated_analysis_filters_bad_repository_items():
+    generated = {
+        "summary": "Anthropic returned mixed list items.",
+        "skill_model": {
+            "code_quality": {"score": 70},
+            "delivery": {"score": 68},
+            "algorithms": {"score": None},
+            "overall": {"score": None, "confidence": "low", "percentile_note": ""},
+        },
+        "career_stage": {"stage": "student"},
+        "repository_evaluations": [
+            "bad item",
+            {"full_name": "ada/app", "complexity_tier": "project", "architecture_notes": "Layered app."},
+        ],
+    }
+
+    normalized = normalize_generated_analysis(generated)
+
+    assert normalized["repository_evaluations"] == [
+        {"full_name": "ada/app", "complexity_tier": "project", "architecture_notes": "Layered app."}
+    ]
+    assert legacy_project_complexity_notes(["bad item", normalized["repository_evaluations"][0]]) == [
+        "ada/app is assessed as project. Layered app."
+    ]
+
+
+def test_normalize_generated_analysis_parses_json_string_fields():
+    generated = {
+        "summary": "Anthropic returned encoded JSON fields.",
+        "skill_model": '{"code_quality":{"score":72},"delivery":{"score":70},"algorithms":{"score":null},"overall":{"score":null,"confidence":"low","percentile_note":""}}',
+        "career_stage": '{"stage":"student"}',
+        "repository_evaluations": '[{"full_name":"ada/app","complexity_tier":"project","architecture_notes":"Layered app."}]',
+    }
+
+    normalized = normalize_generated_analysis(generated)
+
+    assert isinstance(normalized["skill_model"], dict)
+    assert normalized["career_stage"] == {"stage": "student"}
+    assert normalized["repository_evaluations"][0]["full_name"] == "ada/app"
 
 
 def test_floor_delivery_score_raises_three_systems_to_minimum_78():

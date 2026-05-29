@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import AnalysisStatus, GeneratedEvaluation, GitHubRepository, LeetCodeSnapshot, ProfileSection, User
-from app.services.embeddings import upsert_profile_embedding
+from app.services.embeddings import build_rag_context, repo_has_embeddings, upsert_profile_embedding
 from app.services.scoring import github_quality_signals, leetcode_signals, profile_signals
 import logging
 
@@ -19,10 +19,15 @@ logger = logging.getLogger(__name__)
 CAREER_STAGES = {"student", "new_grad", "early", "mid", "senior"}
 CONFIDENCE_LEVELS = ["high", "medium", "low"]
 OVERALL_SCORE_WEIGHTS = {"code_quality": 0.50, "delivery": 0.35, "algorithms": 0.15}
-MAX_PROMPT_CODE_CONTEXT_REPOS = 10
-MAX_PROMPT_CODE_CONTEXT_CHARS = 220000
-RETRY_PROMPT_CODE_CONTEXT_REPOS = 6
-RETRY_PROMPT_CODE_CONTEXT_CHARS = 120000
+MAX_PROMPT_CODE_CONTEXT_REPOS = 20
+MAX_PROMPT_CODE_CONTEXT_CHARS = 500000
+RETRY_PROMPT_CODE_CONTEXT_REPOS = 20
+RETRY_PROMPT_CODE_CONTEXT_CHARS = 260000
+HIGH_SIGNAL_FILES_PER_REPO = 4
+MAX_PROMPT_README_CHARS = 2500
+MAX_PROMPT_FILE_CHARS = 3500
+MAX_RAG_CHUNKS_PER_DIMENSION = 16
+RETRY_RAG_CHUNKS_PER_DIMENSION = 8
 
 
 def normalize_overall_score(skill_model: dict) -> dict:
@@ -124,11 +129,61 @@ def scope_overall_score(skill_model: dict, career_stage: dict | None) -> dict:
 def normalize_generated_analysis(generated: dict) -> dict:
     if not isinstance(generated, dict):
         return generated
+    normalized = dict(generated)
+
+    for key in ("skill_model", "career_stage", "signal_completeness", "temporal_signals", "hiring_recommendation"):
+        value = normalized.get(key)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                normalized[key] = parsed
+
+    for key in (
+        "repository_evaluations",
+        "strengths",
+        "growth_areas",
+        "evidence_highlights",
+        "role_fit",
+        "manual_section_evaluations",
+        "interview_questions",
+        "recruiter_risks",
+    ):
+        value = normalized.get(key)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                normalized[key] = parsed
+
+    repository_evaluations = normalized.get("repository_evaluations")
+    if isinstance(repository_evaluations, list):
+        normalized["repository_evaluations"] = [item for item in repository_evaluations if isinstance(item, dict)]
+
+    for key in (
+        "strengths",
+        "growth_areas",
+        "evidence_highlights",
+        "role_fit",
+        "manual_section_evaluations",
+        "interview_questions",
+        "recruiter_risks",
+    ):
+        if not isinstance(normalized.get(key), list):
+            normalized[key] = []
+    if not isinstance(normalized.get("repository_evaluations"), list):
+        normalized["repository_evaluations"] = []
+    if not isinstance(normalized.get("recruiter_copy"), str):
+        normalized["recruiter_copy"] = ""
+
     skill_model = generated.get("skill_model")
     if not isinstance(skill_model, dict):
-        return generated
+        return normalized
 
-    normalized = dict(generated)
     normalized_skill_model = dict(skill_model)
     normalized_skill_model = floor_delivery_score(normalized_skill_model, normalized.get("repository_evaluations"))
     normalized_skill_model["overall"] = normalize_overall_score(normalized_skill_model)
@@ -391,15 +446,17 @@ CARDINAL RULES
 - Null scores mean insufficient evidence. Never return 0 when data is absent. 0 is a measurement. null is an absence of measurement.
 
 EVALUATION WORKFLOW
-- First identify the strongest evidence available for each dimension: code context for code quality, activity plus completed work for delivery, and repo DSA plus provided LeetCode data for algorithms.
+- First identify the strongest evidence available for each dimension: rag_code_context plus selected repository code context for code quality, activity plus completed work for delivery, and repo DSA plus provided LeetCode data for algorithms.
 - Then judge whether the signal is strong, mixed, weak, or absent. Weak signal should lower scores instead of being averaged away.
 - For delivery, use commit counts, pushed_at recency, and recent commit messages/change summaries when available. Commit volume is activity evidence, but recent messages reveal whether work reflects meaningful product changes, maintenance, experiments, or trivial churn.
 - Treat manual profile sections as first-class recruiter evidence. Evaluate education, experience, projects, bootcamps, and certifications for relevance, recency, credibility/detail level, consistency with GitHub evidence, and missing context a recruiter should verify.
+- Treat rag_code_context as the primary code evidence. It is grouped by review dimension and contains retrieved chunks from the vector index. Cite `repo` and `file_path` from RAG chunks when making code claims.
+- If rag_code_context is empty or embedding_precompute reports errors/zero stored chunks, use selected_repository_code_context as the file-model fallback. This fallback is intentionally balanced: README plus high-signal files for each selected repository.
 - If the prompt contains noisy or generated artifacts, ignore them unless they are part of a specific engineering choice worth noting.
 - If the repo is mostly scaffolding, lockfiles, cache directories, generated code, or empty shells, treat that as weak signal and say so explicitly.
 
 EVIDENCE HIERARCHY
-- Highest: actual code context, architecture, tests, file structure, and repo-specific implementation details.
+- Highest: RAG-retrieved code chunks, selected code context, architecture, tests, file structure, and repo-specific implementation details.
 - Medium: manual profile sections with concrete descriptions, repository metadata such as descriptions, language, stars, forks, and commit history.
 - Lower: provided LeetCode and other external practice stats, which should support but not dominate the evaluation.
 - Lowest: noisy paths, generated files, cache folders, and dependency artifacts.
@@ -433,8 +490,8 @@ NEGATIVE SIGNAL POLICY
 - If committed env files exist, mention them as a caution flag; do not let them dominate the score unless they are the clearest evidence in the repo.
 
 CODE QUALITY SCORING
-Only score code_quality when selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
-Return one repository_evaluation object per repository with code context. If no code context is available, return an empty array.
+Only score code_quality when rag_code_context or selected_repository_code_context is non-empty. With metadata only, set score = null and note the gap. When code context exists, assess organization, naming/readability, architectural clarity, dependency choices, testability signals, README/config completeness, and project maturity.
+Return one repository_evaluation object per repository with RAG or selected code context. If no code context is available, return an empty array.
 If selected_repository_code_context_omissions is non-empty, treat those repositories as omitted due prompt budget constraints, not as missing user signal.
 
 TEMPORAL ANALYSIS
@@ -631,14 +688,22 @@ def repo_dsa_found(input_payload: dict) -> bool:
         texts.extend(context.get("structure_sample", []))
         for key_file in context.get("key_files", []):
             texts.extend([key_file.get("path", ""), key_file.get("content", "")[:2000]])
+    raw_rag_context = input_payload.get("rag_code_context") or {}
+    rag_context = raw_rag_context if isinstance(raw_rag_context, dict) else {}
+    for chunks in rag_context.values():
+        for chunk in chunks or []:
+            texts.extend([chunk.get("file_path", ""), chunk.get("content", "")[:2000]])
     return any(pattern.search(text) for pattern in patterns for text in texts if text)
 
 
 def assess_signal_completeness(input_payload: dict) -> dict:
     selected_repos = input_payload.get("selected_repositories_for_code_review", [])
     code_context = input_payload.get("selected_repository_code_context", [])
+    raw_rag_context = input_payload.get("rag_code_context") or {}
+    rag_context = raw_rag_context if isinstance(raw_rag_context, dict) else {}
+    rag_chunk_count = sum(len(chunks or []) for chunks in rag_context.values())
     has_repos = len(selected_repos) > 0
-    has_code_context = len(code_context) > 0
+    has_code_context = len(code_context) > 0 or rag_chunk_count > 0
     pushed_dates = [parse_profile_date(repo.get("pushed_at", "")[:10]) for repo in selected_repos if repo.get("pushed_at")]
     pushed_dates = [date for date in pushed_dates if date]
     most_recent = max(pushed_dates) if pushed_dates else None
@@ -664,7 +729,7 @@ def assess_signal_completeness(input_payload: dict) -> dict:
         "code_quality": {
             "available": has_repos,
             "source": "code_context" if has_code_context else "metadata_only" if has_repos else "none",
-            "repos_reviewed": len(code_context),
+            "repos_reviewed": len({chunk.get("repo") for chunks in rag_context.values() for chunk in (chunks or []) if isinstance(chunk, dict) and chunk.get("repo")}) or len(code_context),
             "confidence": "high" if has_code_context else "medium" if has_repos else "low",
         },
         "delivery": {
@@ -867,6 +932,7 @@ def build_analysis_payload(
     selected_code_context: list[dict] | None = None,
     selected_code_context_omissions: list[dict] | None = None,
     selected_code_context_total: int | None = None,
+    rag_context: dict | None = None,
 ) -> dict:
     selected_repositories = [
         {
@@ -891,6 +957,7 @@ def build_analysis_payload(
         "selected_repository_code_context": selected_code_context or [],
         "selected_repository_code_context_total": selected_code_context_total if selected_code_context_total is not None else len(selected_code_context or []),
         "selected_repository_code_context_omissions": selected_code_context_omissions or [],
+        "rag_code_context": rag_context or {},
         "sections": [
             {
                 "kind": section.kind,
@@ -1049,6 +1116,9 @@ def build_profile_signal_snapshot(
         "Strengths: " + "; ".join(generated.get("strengths") or []),
     ]
 
+    rag_summary = rag_context_file_summary(payload.get("rag_code_context", {}))
+    rag_summary["embedding_precompute"] = payload.get("rag_embedding_precompute", {})
+
     return {
         "version": 1,
         "profile": {"name": user.name, "slug": user.slug, "headline": user.headline},
@@ -1063,6 +1133,7 @@ def build_profile_signal_snapshot(
         "skill_model": skill_model,
         "signal_completeness": generated.get("signal_completeness"),
         "evidence": evidence_signal_snapshot(generated, selected_code_context),
+        "rag": rag_summary,
         "recruiter": {
             "hiring_recommendation": generated.get("hiring_recommendation"),
             "role_fit": generated.get("role_fit", []),
@@ -1144,6 +1215,58 @@ def context_char_count(context: dict) -> int:
     return total
 
 
+def trim_text_for_prompt(value: str, max_chars: int) -> str:
+    if not value or len(value) <= max_chars:
+        return value or ""
+    return value[:max_chars].rstrip() + "\n[truncated for prompt budget]"
+
+
+def high_signal_file_rank(path: str) -> tuple[int, str]:
+    lower = path.lower()
+    name = lower.split("/")[-1]
+    if name in {"package.json", "pyproject.toml", "requirements.txt", "dockerfile", "docker-compose.yml", "tsconfig.json", "next.config.ts"}:
+        return (0, lower)
+    if any(part in lower for part in ("/api/", "/routes/", "/services/", "/models/", "/schemas")):
+        return (1, lower)
+    if any(part in lower for part in ("/lib/", "/utils/", "/hooks/")):
+        return (2, lower)
+    if any(part in lower for part in ("/components/", "/pages/", "/app/")):
+        return (3, lower)
+    if any(part in lower for part in ("/tests/", "/test_", ".test.", ".spec.")):
+        return (4, lower)
+    if lower.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".cs", ".rb", ".php")):
+        return (5, lower)
+    return (6, lower)
+
+
+def compact_code_context_for_prompt(context: dict, max_key_files: int = HIGH_SIGNAL_FILES_PER_REPO) -> dict:
+    compacted = dict(context)
+    compacted["readme"] = trim_text_for_prompt(str(context.get("readme") or ""), MAX_PROMPT_README_CHARS)
+
+    ranked_files = []
+    for index, key_file in enumerate(context.get("key_files") or []):
+        path = str(key_file.get("path") or "")
+        content = str(key_file.get("content") or "")
+        if not path or not content:
+            continue
+        if path.lower().endswith("readme.md"):
+            continue
+        ranked_files.append((high_signal_file_rank(path), index, path, content))
+
+    compacted["key_files"] = [
+        {
+            "path": path,
+            "content": trim_text_for_prompt(content, MAX_PROMPT_FILE_CHARS),
+        }
+        for _, _, path, content in sorted(ranked_files)[:max_key_files]
+    ]
+    compacted["prompt_sampling_strategy"] = (
+        f"Embedding fallback/code context mode: include README plus up to {max_key_files} high-signal files "
+        "per selected repository, prioritizing config, API/routes/services/models/schemas, shared libraries, UI, and tests."
+    )
+    return compacted
+
+
 def repo_priority(selected_repositories: list[GitHubRepository]) -> dict[str, tuple[int, str]]:
     priority = {}
     for repo in selected_repositories:
@@ -1170,17 +1293,89 @@ def limit_code_context_for_prompt(
     used_chars = 0
     for context in ordered:
         full_name = context.get("full_name", "unknown")
-        char_count = context_char_count(context)
+        compacted = compact_code_context_for_prompt(context)
+        char_count = context_char_count(compacted)
         if len(included) >= max_repos:
             omissions.append({"full_name": full_name, "reason": "repo_limit", "char_count": char_count})
             continue
         if used_chars + char_count > max_chars:
             omissions.append({"full_name": full_name, "reason": "char_budget", "char_count": char_count})
             continue
-        included.append(context)
+        included.append(compacted)
         used_chars += char_count
 
     return included, omissions
+
+
+def trim_rag_context(rag_context: dict, top_k_per_dimension: int) -> dict:
+    return {
+        dimension: list(chunks or [])[:top_k_per_dimension]
+        for dimension, chunks in (rag_context or {}).items()
+    }
+
+
+def rag_context_file_summary(rag_context: dict) -> dict:
+    dimensions = {}
+    files = set()
+    chunk_count = 0
+    for dimension, chunks in (rag_context or {}).items():
+        dimension_files = []
+        for chunk in chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            chunk_count += 1
+            repo = chunk.get("repo") or chunk.get("repo_id") or "unknown"
+            path = chunk.get("file_path") or "unknown"
+            label = f"{repo}:{path}"
+            files.add(label)
+            if label not in dimension_files:
+                dimension_files.append(label)
+        dimensions[dimension] = dimension_files
+    return {"chunk_count": chunk_count, "file_count": len(files), "files_by_dimension": dimensions}
+
+
+def embedding_status_for_selected_repos(db: Session, user_id: str, selected_repositories: list[GitHubRepository]) -> dict:
+    indexed = []
+    missing = []
+    for repo in selected_repositories:
+        if repo_has_embeddings(db, user_id, repo.id):
+            indexed.append({"repo": repo.full_name})
+            continue
+        missing.append({"repo": repo.full_name, "reason": "not_indexed"})
+    return {
+        "attempted": [],
+        "indexed": indexed,
+        "missing": missing,
+        "skipped": missing,
+        "chunks_pending": 0,
+        "chunks_stored": 0,
+        "errors": [],
+        "mode": "read_existing_only",
+    }
+
+
+def build_existing_rag_context(db: Session, user_id: str, selected_repositories: list[GitHubRepository]) -> tuple[dict, dict]:
+    embedding_status = embedding_status_for_selected_repos(db, user_id, selected_repositories)
+    if not embedding_status["indexed"]:
+        return {}, embedding_status
+
+    repo_id_to_full_name = {
+        repo.id: repo.full_name
+        for repo in selected_repositories
+        if any(item["repo"] == repo.full_name for item in embedding_status["indexed"])
+    }
+    try:
+        rag_context = build_rag_context(
+            db=db,
+            user_id=user_id,
+            repo_id_to_full_name=repo_id_to_full_name,
+            top_k_per_query=MAX_RAG_CHUNKS_PER_DIMENSION,
+        )
+    except Exception as exc:
+        logger.warning("RAG retrieval failed during analysis; using file fallback: %s", exc)
+        embedding_status["errors"].append({"message": str(exc)[:500]})
+        return {}, embedding_status
+    return rag_context, embedding_status
 
 
 def legacy_skill_model(v2_skill_model: dict | None) -> dict | None:
@@ -1198,6 +1393,8 @@ def legacy_project_complexity_notes(repository_evaluations: list | None) -> list
         return []
     notes = []
     for repo in repository_evaluations:
+        if not isinstance(repo, dict):
+            continue
         full_name = repo.get("full_name", "selected repository")
         tier = repo.get("complexity_tier", "project")
         architecture = repo.get("architecture_notes", "")
@@ -1314,6 +1511,7 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             max_repos=MAX_PROMPT_CODE_CONTEXT_REPOS,
             max_chars=MAX_PROMPT_CODE_CONTEXT_CHARS,
         )
+        rag_context, embedding_precompute = build_existing_rag_context(db, user.id, selected_repositories)
         leetcode = (
             db.query(LeetCodeSnapshot)
             .filter(LeetCodeSnapshot.user_id == user.id)
@@ -1329,7 +1527,9 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             prompt_code_context,
             prompt_omissions,
             selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+            rag_context=rag_context,
         )
+        payload["rag_embedding_precompute"] = embedding_precompute
         snapshot_payload = payload
 
         try:
@@ -1349,7 +1549,9 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
                 retry_context,
                 retry_omissions,
                 selected_code_context_total=len([context for context in selected_code_context if "error" not in context]),
+                rag_context=trim_rag_context(rag_context, RETRY_RAG_CHUNKS_PER_DIMENSION),
             )
+            retry_payload["rag_embedding_precompute"] = embedding_precompute
             snapshot_payload = retry_payload
             generated = generate_analysis(retry_payload)
 
@@ -1359,6 +1561,11 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
         evaluation.skill_model = legacy_skill_model(generated["skill_model"])
         evaluation.career_stage = generated["career_stage"]
         evaluation.signal_completeness = generated["signal_completeness"]
+        repository_evaluations = generated.get("repository_evaluations") or []
+        strengths = generated.get("strengths") or []
+        growth_areas = generated.get("growth_areas") or []
+        evidence_highlights = generated.get("evidence_highlights") or []
+        recruiter_copy = generated.get("recruiter_copy") or ""
         evaluation.profile_signal_snapshot = build_profile_signal_snapshot(
             user=user,
             repositories=repositories,
@@ -1368,12 +1575,12 @@ def run_analysis(db: Session, user: User, evaluation: GeneratedEvaluation) -> Ge
             generated=generated,
             selected_code_context=[context for context in selected_code_context if "error" not in context],
         )
-        evaluation.repository_evaluations = generated["repository_evaluations"]
-        evaluation.strengths = generated["strengths"]
-        evaluation.growth_areas = generated["growth_areas"]
-        evaluation.project_complexity_notes = legacy_project_complexity_notes(generated["repository_evaluations"])
-        evaluation.evidence_highlights = generated["evidence_highlights"]
-        evaluation.recruiter_copy = generated["recruiter_copy"]
+        evaluation.repository_evaluations = repository_evaluations
+        evaluation.strengths = strengths
+        evaluation.growth_areas = growth_areas
+        evaluation.project_complexity_notes = legacy_project_complexity_notes(repository_evaluations)
+        evaluation.evidence_highlights = evidence_highlights
+        evaluation.recruiter_copy = recruiter_copy
         evaluation.error = None
     except Exception as exc:  # pragma: no cover - exercised by integration tests with service mocks
         evaluation.status = AnalysisStatus.failed
