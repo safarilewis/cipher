@@ -1,51 +1,18 @@
-import { createHmac } from "crypto";
-import { auth } from "@/auth";
-export { publicBackendFetch, publicFetch } from "@/lib/public-backend";
-
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-function base64url(input: Buffer | string) {
-  return Buffer.from(input).toString("base64url");
+export async function publicFetch<T>(path: string): Promise<T> {
+  return publicBackendFetch<T>(path);
 }
 
-function signBackendToken(payload: Record<string, unknown>) {
-  const secret = process.env.BACKEND_SESSION_SECRET ?? "dev-secret";
-  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const body = base64url(JSON.stringify(payload));
-  const signature = createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
-  return `${header}.${body}.${signature}`;
-}
-
-export async function backendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const session = await auth();
-  if (!session?.user?.email) {
-    throw new Error("You must be signed in to call the backend.");
-  }
-
-  const token = signBackendToken({
-    sub: session.user.email,
-    email: session.user.email,
-    name: session.user.name,
-    iat: Math.floor(Date.now() / 1000)
-  });
-
+export async function publicBackendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  headers.set("content-type", "application/json");
-  headers.set("authorization", `Bearer ${token}`);
-
-  const response = await fetch(`${backendUrl}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store"
-  });
-
+  if (init.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const response = await fetch(`${backendUrl}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
     const message = await readBackendError(response);
-    throw new Error(`Backend request failed for ${path} (${response.status}): ${message}`);
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
+    throw new Error(`Public backend request failed for ${path} (${response.status}): ${message}`);
   }
   return parseJsonResponse<T>(response, path);
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { publicBackendFetch } from "@/lib/backend";
+import { publicBackendFetch } from "@/lib/public-backend";
 import type { PublicProfileQuestionAnswer } from "@/lib/types";
 
 const corsHeaders = {

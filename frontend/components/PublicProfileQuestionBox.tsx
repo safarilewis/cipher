@@ -4,6 +4,12 @@ import { useState, useTransition } from "react";
 import { Send, Sparkles } from "lucide-react";
 import type { PublicProfileQuestionAnswer } from "@/lib/types";
 
+function titleCase(value: string) {
+  return value
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function PublicProfileQuestionBox({ slug }: { slug: string }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<PublicProfileQuestionAnswer | null>(null);
@@ -53,8 +59,8 @@ export function PublicProfileQuestionBox({ slug }: { slug: string }) {
       {answer && (
         <div className="recruiter-answer">
           <div className="recruiter-answer-meta">
-            <span className="status">{answer.recommendation.replace("_", " ")}</span>
-            <span className="status">{answer.confidence} confidence</span>
+            <span className="status">{titleCase(answer.recommendation)}</span>
+            <span className="status">{titleCase(answer.confidence)} Confidence</span>
           </div>
           <p>{answer.answer}</p>
           <div className="recruiter-answer-grid">
