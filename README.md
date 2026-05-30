@@ -1,8 +1,8 @@
 # Cipher
 
-**A portfolio that's alive — one you can ask questions, and that answers with accurate evidence cited from a developers portfolio.**
+**A portfolio that's alive — one you can ask questions, and that answers with accurate evidence.**
 
-A portfolio is usually a static page you read top to bottom and take on faith. Cipher makes it *alive*: a portfolio generated from a developer's actual work — the code in their repositories, their activity over time, and their structured profile sections — that you can **interrogate directly** instead of just reading. Ask it the questions people actually have ("has this developer built retrieval systems?", "is this person ready for a backend role?") and it answers with **accurate, source-linked evidence** rather than claims. Every answer traces to a specific source — a repo, a file, a commit — and the long-term goal is a portfolio that a person *or an autonomous agent* can query and trust without manual back and forth with a candidate.
+A portfolio is usually a static page you read top to bottom and take on faith. Cipher makes it *alive*: a portfolio generated from a developer's actual work — the code in their repositories, their activity over time, and their structured profile sections — that you can **interrogate directly** instead of just reading. Ask it the questions people actually have ("has this developer built retrieval systems?", "is this person ready for a backend role?") and it answers with **accurate, source-linked evidence** rather than claims. Every answer traces to a specific source — a repo, a file, a commit — and the long-term goal is a portfolio that a person *or an autonomous agent* can query and trust asynchronously even before contact.
 
 Portfolios are private by default and only become publicly visible after explicit review and publication.
 
@@ -71,7 +71,7 @@ A portfolio that answers questions is only useful if the answers are trustworthy
 
 ## Roadmap 🚧
 
-These are the core of where Cipher is headed. They're listed in rough dependency order — authorship verification is the foundation the rest build on.
+These are the core of where Cipher is headed and are **not yet shipped**. They're listed in rough dependency order — authorship verification is the foundation the rest build on.
 
 - **Authorship verification.** 🟡 The goal: attribute code to the developer via commit history and `git blame`, so the evaluation reflects what they actually wrote — not vendored dependencies, forked examples, or a teammate's commits. This is the foundation everything else depends on.
   - *Today:* commit counts can already be filtered to the connected user's GitHub login (`fetch_commit_count(..., author=...)`), but embeddings and code review still run over the full repository tree without line-level attribution.
@@ -105,3 +105,120 @@ These are the core of where Cipher is headed. They're listed in rough dependency
 Start backend dependencies and the API:
 
 ```bash
+docker compose up --build
+```
+
+Services:
+
+- Backend API: `http://localhost:8000`
+- Postgres: `localhost:5432`
+- Redis: `localhost:6379`
+
+Start the frontend in a second terminal:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+Frontend: `http://localhost:3000`
+
+## Manual local development
+
+**Prerequisites:** Python 3.11+, Node.js 20+, optional Docker (for Postgres/Redis).
+
+```bash
+# Backend
+cd backend
+cp .env.example .env
+python -m pip install -e ".[dev]"
+uvicorn app.main:app --reload   # docs at http://localhost:8000/docs
+```
+
+```bash
+# Frontend
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+---
+
+## Environment variables
+
+### Backend (`backend/.env`)
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DATABASE_URL` | No | SQLAlchemy connection string. Defaults to SQLite if unset. |
+| `REDIS_URL` | No | Redis URL. |
+| `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
+| `AUTH_TRUST_DEV_HEADERS` | No | Trust `x-cipher-user-*` dev headers when `true` (local testing only — set `false` in any deployed environment). |
+| `ANALYSIS_PROVIDER` | No | `openai` or `anthropic` (default `openai`). |
+| `OPENAI_API_KEY` | No | Enables OpenAI analysis. |
+| `OPENAI_MODEL` | No | OpenAI model name. |
+| `ANTHROPIC_API_KEY` | No | Enables Anthropic analysis. |
+| `ANTHROPIC_MODEL` | No | Anthropic model name. |
+| `VOYAGE_API_KEY` | No | Enables code embeddings. Without it, analysis falls back to file context instead of vector retrieval. |
+| `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for the frontend. |
+| `FREE_TIER_REFRESH_DAYS` | No | Source refresh cooldown window (default `14`). |
+
+### Frontend (`frontend/.env.local`)
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `NEXTAUTH_URL` | Yes | Frontend URL (local: `http://localhost:3000`). |
+| `AUTH_URL` | Yes | Auth.js URL (usually same as `NEXTAUTH_URL`). |
+| `AUTH_SECRET` | Yes | Auth.js session secret. |
+| `AUTH_GITHUB_ID` | Yes | GitHub OAuth app client ID. |
+| `AUTH_GITHUB_SECRET` | Yes | GitHub OAuth app client secret. |
+| `BACKEND_URL` | Yes | Backend URL (local: `http://localhost:8000`). |
+| `BACKEND_SESSION_SECRET` | Yes | Must exactly match the backend value. |
+
+> `BACKEND_SESSION_SECRET` must match between frontend and backend in every environment.
+
+## Auth model
+
+- The frontend authenticates users with GitHub via Auth.js.
+- It then mints a short-lived backend bearer token (`sub`, `email`, `name`) signed with `BACKEND_SESSION_SECRET`.
+- The backend validates that token and resolves or creates the corresponding user.
+
+---
+
+## API overview
+
+Base URL: `http://localhost:8000`
+
+**Health** — `GET /health`
+
+**Profile** — `GET/PATCH /profile`, and `GET/POST/PUT/DELETE` on `/profile/sections`. Section kinds: `education`, `experience`, `certification`, `bootcamp`, `project`.
+
+**Sources** — connect and sync GitHub (`POST /sources/github`, repository listing and selection of up to 20 repos) and LeetCode (`POST /sources/leetcode`); disconnect via `DELETE /sources/{kind}`.
+
+**Analysis & publishing** — `POST /analysis` to run, `GET /analysis/latest`, `POST /analysis/{id}/review`, and `POST /analysis/publish` (requires a reviewed analysis) / `POST /analysis/unpublish`.
+
+**Public** — `GET /public/profiles/{slug}` returns the payload for published profiles only, `GET /public/search` performs semantic search across published profiles, and `POST /public/profiles/{slug}/ask` answers recruiter questions about a published profile.
+
+---
+
+## Tests and checks
+
+```bash
+cd backend && pytest          # backend tests (92 passing; uses in-memory SQLite, no Postgres needed)
+cd frontend && npm run build  # frontend production build
+cd frontend && npm run lint   # frontend lint
+```
+
+> The backend suite installs with `pip install -e ".[dev]"`. A `test` script (`vitest run`) is wired up in `frontend/package.json`, but no frontend test files exist yet — adding them is a 🚧 task.
+
+## Deployment
+
+- **Backend (Render):** `backend/render.yaml` defines a Blueprint with a `cipher-api` web service plus managed Postgres and Redis. Set at minimum `FRONTEND_ORIGIN`, `BACKEND_SESSION_SECRET`, and your AI provider key(s).
+- **Frontend (Vercel):** deploy `frontend/` as a Next.js app and set the Auth.js, GitHub OAuth, and backend variables above.
+
+## License
+
+GPL-3.0.
