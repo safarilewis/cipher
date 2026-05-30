@@ -229,4 +229,4 @@ Set:
 
 ## License
 
-No license file is currently included. Add a `LICENSE` file before open-source distribution.
+AGPL
