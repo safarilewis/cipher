@@ -226,7 +226,3 @@ Set:
 - `AUTH_GITHUB_SECRET`
 - `BACKEND_URL`
 - `BACKEND_SESSION_SECRET` (must match backend)
-
-## License
-
-AGPL
