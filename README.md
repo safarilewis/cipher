@@ -157,11 +157,14 @@ npm run dev
 | `REDIS_URL` | No | Redis URL. |
 | `BACKEND_SESSION_SECRET` | Yes | Shared secret used to verify frontend-signed backend JWTs. |
 | `AUTH_TRUST_DEV_HEADERS` | No | Trust `x-cipher-user-*` dev headers when `true` (local testing only — set `false` in any deployed environment). |
-| `ANALYSIS_PROVIDER` | No | `openai` or `anthropic` (default `openai`). |
+| `ANALYSIS_PROVIDER` | No | `openai`, `anthropic`, or `groq` (default `openai`). |
 | `OPENAI_API_KEY` | No | Enables OpenAI analysis. |
 | `OPENAI_MODEL` | No | OpenAI model name. |
 | `ANTHROPIC_API_KEY` | No | Enables Anthropic analysis. |
 | `ANTHROPIC_MODEL` | No | Anthropic model name. |
+| `GROQ_API_KEY` | No | Enables Groq analysis when `ANALYSIS_PROVIDER=groq`. |
+| `GROQ_MODEL` | No | Groq model name. |
+| `GROQ_BASE_URL` | No | OpenAI-compatible Groq API base URL. |
 | `VOYAGE_API_KEY` | No | Enables code embeddings. Without it, analysis falls back to file context instead of vector retrieval. |
 | `FRONTEND_ORIGIN` | Yes | Allowed CORS origin for the frontend. |
 | `FREE_TIER_REFRESH_DAYS` | No | Source refresh cooldown window (default `14`). |

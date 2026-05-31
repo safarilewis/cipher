@@ -6,6 +6,9 @@ from app.core.config import get_settings
 from app.models import GeneratedEvaluation, GitHubRepository, LeetCodeSnapshot, ProfileSection, User
 
 
+GROQ_PROFILE_QA_MAX_TOKENS = 700
+
+
 PROFILE_QUESTION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -21,16 +24,22 @@ PROFILE_QUESTION_SCHEMA = {
 
 
 PROFILE_QUESTION_INSTRUCTIONS = """
-You answer recruiter questions about a public developer profile.
+You are the conversational representative for a public developer profile.
+Answer as if you are speaking on the developer's behalf, using a grounded first-person voice.
 
 Rules:
 - Answer only from the supplied profile evidence.
+- Use "I" / "my" when describing evidence-supported work, skills, projects, and fit.
+- Stay transparent that the answer is based on the published profile evidence, not private memories or unsupported claims.
+- If evidence is thin, say so directly in first person: "I do not have enough published evidence here to claim..."
 - If the recruiter asks whether the applicant is qualified for a role, give a direct recommendation:
   recommend, consider, hold, or insufficient_evidence.
 - Cite concrete evidence from the analysis, role fit, manual sections, repositories, LeetCode data, or recruiter risks.
 - Be fair: distinguish observed evidence from interpretation.
 - Include verification questions the recruiter can ask in a screen or interview.
 - Do not invent employment history, production experience, credentials, or role fit.
+- Do not claim to be currently available, interested, authorized to interview, or able to make commitments unless supplied evidence says so.
+- Keep the answer concise, warm, and confident where the evidence supports confidence.
 Return only JSON matching the schema.
 """.strip()
 
@@ -112,9 +121,9 @@ def fallback_profile_question_answer(question: str, payload: dict) -> dict:
     decision = hiring.get("decision") if hiring.get("decision") in {"recommend", "consider", "hold", "insufficient_evidence"} else "insufficient_evidence"
     confidence = hiring.get("confidence") if hiring.get("confidence") in {"high", "medium", "low"} else "low"
     answer = (
-        f"For the question '{question}', the available profile evidence supports a "
-        f"{decision.replace('_', ' ')} recommendation with {confidence} confidence. "
-        "Use the cited evidence below and verify any role-specific requirements in an interview."
+        f"Based on my published profile evidence, I would answer '{question}' with a "
+        f"{decision.replace('_', ' ')} recommendation and {confidence} confidence. "
+        "The evidence below is what supports that answer; anything role-specific should still be verified in an interview."
     )
     return {
         "answer": answer,
@@ -139,18 +148,51 @@ def answer_profile_question(
 ) -> dict:
     payload = profile_question_payload(user, sections, repositories, leetcode, evaluation)
     settings = get_settings()
-    if not settings.openai_api_key:
+    provider = getattr(settings, "analysis_provider", "openai")
+    if provider == "groq":
+        api_key = settings.groq_api_key
+        model = settings.groq_model
+        base_url = settings.groq_base_url
+    else:
+        api_key = settings.openai_api_key
+        model = settings.openai_model
+        base_url = None
+
+    if not api_key:
         return fallback_profile_question_answer(question, payload)
 
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    input_text = (
+        "Answer this recruiter question as the developer's evidence-grounded representative.\n\n"
+        f"Recruiter question: {question}\n\n"
+        f"Profile evidence:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+    if provider == "groq":
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=GROQ_PROFILE_QA_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"{PROFILE_QUESTION_INSTRUCTIONS}\n\n"
+                        "Return only a valid JSON object matching this JSON Schema:\n"
+                        f"{json.dumps(PROFILE_QUESTION_SCHEMA, ensure_ascii=False)}"
+                    ),
+                },
+                {"role": "user", "content": input_text},
+            ],
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("Groq response did not include JSON content")
+        return json.loads(content)
+
     response = client.responses.create(
-        model=settings.openai_model,
+        model=model,
         instructions=PROFILE_QUESTION_INSTRUCTIONS,
-        input=(
-            "Answer this recruiter question about the public developer profile.\n\n"
-            f"Recruiter question: {question}\n\n"
-            f"Profile evidence:\n{json.dumps(payload, ensure_ascii=False)}"
-        ),
+        input=input_text,
         text={
             "format": {
                 "type": "json_schema",

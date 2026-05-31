@@ -26,7 +26,7 @@ export async function AppHeader() {
           <>
             <Link href="/#how">How it works</Link>
             <Link href="/#signal">Signal</Link>
-            <a href="https://github.com/safarilewis/new-adpt" target="_blank" rel="noreferrer">GitHub</a>
+            <a href="https://github.com/safarilewis/cipher" target="_blank" rel="noreferrer">GitHub</a>
             <span className="nav-sep" />
             <Link className="btn-nav" href="/login">Log in</Link>
             <Link className="btn-nav btn-nav-primary" href="/signup">Connect GitHub -&gt;</Link>

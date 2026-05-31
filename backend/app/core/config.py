@@ -6,16 +6,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "cipher"
-    database_url: str = "sqlite:///./adpt.db"
+    database_url: str = "sqlite:///./cipher.db"
     redis_url: str = "redis://localhost:6379/0"
     backend_session_secret: str = "dev-secret"
     init_db_on_startup: bool = True
     auth_trust_dev_headers: bool = True
-    analysis_provider: Literal["openai", "anthropic"] = "openai"
+    analysis_provider: Literal["openai", "anthropic", "groq"] = "openai"
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.2"
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     voyage_api_key: str | None = None
     voyage_embedding_model: str = "voyage-2"
     frontend_origin: str = "http://localhost:3000"

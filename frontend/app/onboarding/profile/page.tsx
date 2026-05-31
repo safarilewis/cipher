@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { saveProfileSection } from "@/app/actions";
+import { saveProfileSection, skipProfileSection } from "@/app/actions";
 import { PendingButton } from "@/components/PendingButton";
 
 export default async function ProfileOnboardingPage() {
@@ -29,6 +29,9 @@ export default async function ProfileOnboardingPage() {
         <label className="field"><span>URL</span><input name="url" /></label>
         <input name="order" type="hidden" value="0" />
         <PendingButton pendingLabel="Saving evidence...">Save and open dashboard</PendingButton>
+      </form>
+      <form action={skipProfileSection}>
+        <PendingButton className="btn-secondary" pendingLabel="Opening dashboard...">Skip for now</PendingButton>
       </form>
     </section>
   );

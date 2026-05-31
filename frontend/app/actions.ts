@@ -31,6 +31,10 @@ export async function connectLeetcode(formData: FormData) {
   redirect("/onboarding/profile");
 }
 
+export async function skipLeetcode() {
+  redirect("/onboarding/profile");
+}
+
 export async function saveProfileSection(formData: FormData) {
   await backendFetch("/profile/sections", {
     method: "POST",
@@ -45,6 +49,10 @@ export async function saveProfileSection(formData: FormData) {
       order: Number(formData.get("order") || 0)
     })
   });
+  redirect("/dashboard");
+}
+
+export async function skipProfileSection() {
   redirect("/dashboard");
 }
 

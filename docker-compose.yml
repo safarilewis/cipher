@@ -3,15 +3,15 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: adpt
-      POSTGRES_PASSWORD: adpt
-      POSTGRES_DB: adpt
+      POSTGRES_USER: cipher
+      POSTGRES_PASSWORD: cipher
+      POSTGRES_DB: cipher
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U adpt -d adpt"]
+      test: ["CMD-SHELL", "pg_isready -U cipher -d cipher"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -27,7 +27,7 @@ services:
     working_dir: /app
     command: sh -c "pip install -e . && python scripts/apply_migrations.py"
     environment:
-      DATABASE_URL: postgresql+psycopg://adpt:adpt@postgres:5432/adpt
+      DATABASE_URL: postgresql+psycopg://cipher:cipher@postgres:5432/cipher
       BACKEND_SESSION_SECRET: dev-secret
       INIT_DB_ON_STARTUP: "false"
     volumes:
@@ -43,7 +43,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql+psycopg://adpt:adpt@postgres:5432/adpt
+      DATABASE_URL: postgresql+psycopg://cipher:cipher@postgres:5432/cipher
       REDIS_URL: redis://redis:6379/0
       BACKEND_SESSION_SECRET: dev-secret
       INIT_DB_ON_STARTUP: "false"

@@ -21,6 +21,7 @@ from app.services.analysis import (
     fallback_analysis,
     generate_analysis,
     generate_with_anthropic,
+    generate_with_groq,
     infer_career_stage,
     build_profile_signal_snapshot,
     legacy_project_complexity_notes,
@@ -255,6 +256,57 @@ def test_generate_analysis_routes_to_anthropic(monkeypatch):
     result = generate_analysis({"summary": "payload"})
 
     assert result["provider"] == "anthropic"
+
+
+def test_generate_analysis_routes_to_groq(monkeypatch):
+    class Settings:
+        analysis_provider = "groq"
+
+    monkeypatch.setattr("app.services.analysis.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.services.analysis.generate_with_openai", lambda payload: {"provider": "openai"})
+    monkeypatch.setattr("app.services.analysis.generate_with_anthropic", lambda payload: {"provider": "anthropic"})
+    monkeypatch.setattr("app.services.analysis.generate_with_groq", lambda payload: {"provider": "groq"})
+
+    result = generate_analysis({"summary": "payload"})
+
+    assert result["provider"] == "groq"
+
+
+def test_generate_with_groq_uses_openai_compatible_json_mode(monkeypatch):
+    captured = {}
+
+    class Settings:
+        groq_api_key = "test-key"
+        groq_model = "llama-3.3-70b-versatile"
+        groq_base_url = "https://api.groq.com/openai/v1"
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))])
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, api_key, base_url=None):
+            assert api_key == "test-key"
+            assert base_url == "https://api.groq.com/openai/v1"
+            self.chat = FakeChat()
+
+    monkeypatch.setattr("app.services.analysis.get_settings", lambda: Settings())
+    monkeypatch.setattr("app.services.analysis.OpenAI", FakeOpenAI)
+    monkeypatch.setattr("app.services.analysis.build_groq_evaluation_input", lambda payload: "prompt body")
+    monkeypatch.setattr("app.services.analysis.fallback_analysis", lambda payload: {})
+
+    result = generate_with_groq({"summary": "payload"})
+
+    assert captured["model"] == "llama-3.3-70b-versatile"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert captured["messages"][0]["role"] == "system"
+    assert "Required top-level keys" in captured["messages"][0]["content"]
+    assert captured["messages"][1] == {"role": "user", "content": "prompt body"}
+    assert result == {"ok": True}
 
 
 def test_generate_with_anthropic_uses_cached_system_and_tool_use(monkeypatch):

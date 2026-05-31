@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { connectLeetcode } from "@/app/actions";
+import { connectLeetcode, skipLeetcode } from "@/app/actions";
 import { PendingButton } from "@/components/PendingButton";
 
 export default async function LeetcodeOnboardingPage() {
@@ -18,6 +18,9 @@ export default async function LeetcodeOnboardingPage() {
           <input name="username" required />
         </label>
         <PendingButton pendingLabel="Importing LeetCode...">Import LeetCode stats</PendingButton>
+      </form>
+      <form action={skipLeetcode}>
+        <PendingButton className="btn-secondary" pendingLabel="Skipping...">Skip LeetCode</PendingButton>
       </form>
     </section>
   );

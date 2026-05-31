@@ -8,7 +8,7 @@ const activityLevels = [
   1, 0, 0, 1, 2, 3, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 3, 2
 ];
 
-const githubRepoUrl = "https://github.com/safarilewis/new-adpt";
+const githubRepoUrl = "https://github.com/safarilewis/cipher";
 
 function GitHubIcon({ size = 14 }: { size?: number }) {
   return (

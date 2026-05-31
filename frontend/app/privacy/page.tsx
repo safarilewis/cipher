@@ -28,7 +28,7 @@ export default function PrivacyPage() {
             </div>
             <div>
               <span>Project</span>
-              <a href="https://github.com/safarilewis/new-adpt" target="_blank" rel="noreferrer">GitHub repo</a>
+              <a href="https://github.com/safarilewis/cipher" target="_blank" rel="noreferrer">GitHub repo</a>
             </div>
           </aside>
 

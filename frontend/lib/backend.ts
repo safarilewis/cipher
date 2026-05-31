@@ -18,14 +18,15 @@ function signBackendToken(payload: Record<string, unknown>) {
 
 export async function backendFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = await auth();
-  if (!session?.user?.email) {
+  const subject = session?.user?.email ?? session?.githubUsername;
+  if (!subject) {
     throw new Error("You must be signed in to call the backend.");
   }
 
   const token = signBackendToken({
-    sub: session.user.email,
-    email: session.user.email,
-    name: session.user.name,
+    sub: subject,
+    email: session?.user?.email,
+    name: session?.user?.name,
     iat: Math.floor(Date.now() / 1000)
   });
 

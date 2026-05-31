@@ -28,6 +28,14 @@ MAX_PROMPT_README_CHARS = 2500
 MAX_PROMPT_FILE_CHARS = 3500
 MAX_RAG_CHUNKS_PER_DIMENSION = 16
 RETRY_RAG_CHUNKS_PER_DIMENSION = 8
+GROQ_MAX_REPOS = 8
+GROQ_MAX_CODE_CONTEXT_REPOS = 3
+GROQ_MAX_KEY_FILES_PER_REPO = 2
+GROQ_MAX_FILE_CHARS = 700
+GROQ_MAX_README_CHARS = 500
+GROQ_MAX_RAG_CHUNKS_PER_DIMENSION = 1
+GROQ_MAX_RAG_CHARS = 700
+GROQ_ANALYSIS_MAX_TOKENS = 1800
 
 
 def normalize_overall_score(skill_model: dict) -> dict:
@@ -544,6 +552,121 @@ def build_evaluation_input(payload: dict) -> str:
         "Evaluate this developer evidence for a cipher profile. "
         "Use the instructions as the rubric and return JSON matching the schema.\n\n"
         f"Developer evidence payload:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+
+GROQ_EVALUATION_INSTRUCTIONS = """
+Evaluate this developer evidence for a cipher profile and return only valid JSON.
+Keep the response concise, evidence-calibrated, and honest about missing data.
+
+Required top-level keys:
+career_stage, signal_completeness, summary, temporal_signals, skill_model,
+repository_evaluations, strengths, growth_areas, evidence_highlights,
+hiring_recommendation, role_fit, manual_section_evaluations,
+interview_questions, recruiter_risks, recruiter_copy.
+
+Required skill_model keys:
+code_quality, delivery, algorithms, overall. Each dimension should include
+score, confidence, stage_context, basis, and prose. delivery also includes
+trend. algorithms also includes source. overall includes score, confidence,
+and percentile_note.
+
+Use null scores when evidence is insufficient. Cite repos/files/sections when
+possible. End recruiter_copy with COMPETENCE_RANKING and FINAL_RECOMMENDATION.
+""".strip()
+
+
+def deep_merge_dict(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def compact_payload_for_groq(payload: dict) -> dict:
+    compact = {
+        "profile": payload.get("profile", {}),
+        "github": payload.get("github", {}),
+        "metadata_complexity_hint": payload.get("metadata_complexity_hint"),
+        "selected_repositories_for_code_review": [
+            {
+                "full_name": repo.get("full_name"),
+                "description": trim_text_for_prompt(str(repo.get("description") or ""), 300),
+                "language": repo.get("language"),
+                "stars": repo.get("stars"),
+                "forks": repo.get("forks"),
+                "commit_count": repo.get("commit_count"),
+                "all_time_commit_count": repo.get("all_time_commit_count"),
+                "pushed_at": repo.get("pushed_at"),
+                "recent_commits": list(repo.get("recent_commits") or [])[:3],
+            }
+            for repo in (payload.get("selected_repositories_for_code_review") or [])[:GROQ_MAX_REPOS]
+            if isinstance(repo, dict)
+        ],
+        "sections": [
+            {
+                **section,
+                "description": trim_text_for_prompt(str(section.get("description") or ""), 500),
+            }
+            for section in (payload.get("sections") or [])[:10]
+            if isinstance(section, dict)
+        ],
+        "manual_profile": payload.get("manual_profile", {}),
+        "leetcode": payload.get("leetcode"),
+        "career_stage": payload.get("career_stage", {}),
+        "signal_completeness": payload.get("signal_completeness", {}),
+        "temporal_signals": payload.get("temporal_signals", {}),
+        "rag_embedding_precompute": payload.get("rag_embedding_precompute", {}),
+        "selected_repository_code_context_total": payload.get("selected_repository_code_context_total", 0),
+        "selected_repository_code_context_omissions": payload.get("selected_repository_code_context_omissions", []),
+    }
+
+    compact_context = []
+    for context in (payload.get("selected_repository_code_context") or [])[:GROQ_MAX_CODE_CONTEXT_REPOS]:
+        if not isinstance(context, dict):
+            continue
+        compact_context.append(
+            {
+                "full_name": context.get("full_name"),
+                "readme": trim_text_for_prompt(str(context.get("readme") or ""), GROQ_MAX_README_CHARS),
+                "structure_sample": list(context.get("structure_sample") or [])[:30],
+                "architecture_signals": context.get("architecture_signals", {}),
+                "key_files": [
+                    {
+                        "path": key_file.get("path"),
+                        "content": trim_text_for_prompt(str(key_file.get("content") or ""), GROQ_MAX_FILE_CHARS),
+                    }
+                    for key_file in (context.get("key_files") or [])[:GROQ_MAX_KEY_FILES_PER_REPO]
+                    if isinstance(key_file, dict)
+                ],
+            }
+        )
+    compact["selected_repository_code_context"] = compact_context
+
+    compact_rag = {}
+    for dimension, chunks in (payload.get("rag_code_context") or {}).items():
+        compact_rag[dimension] = [
+            {
+                "repo": chunk.get("repo"),
+                "file_path": chunk.get("file_path"),
+                "content": trim_text_for_prompt(str(chunk.get("content") or ""), GROQ_MAX_RAG_CHARS),
+            }
+            for chunk in list(chunks or [])[:GROQ_MAX_RAG_CHUNKS_PER_DIMENSION]
+            if isinstance(chunk, dict)
+        ]
+    compact["rag_code_context"] = compact_rag
+    return compact
+
+
+def build_groq_evaluation_input(payload: dict) -> str:
+    compact_payload = compact_payload_for_groq(payload)
+    return (
+        "Evaluate this compact developer evidence payload. "
+        "Return only valid JSON with the required keys.\n\n"
+        f"Compact evidence payload:\n{json.dumps(compact_payload, ensure_ascii=False)}"
     )
 
 
@@ -1389,13 +1512,37 @@ def generate_with_openai(payload: dict) -> dict:
         text={
             "format": {
                 "type": "json_schema",
-                "name": "adpt_developer_evaluation",
+                "name": "cipher_developer_evaluation",
                 "schema": ANALYSIS_SCHEMA,
                 "strict": True,
             }
         },
     )
     return json.loads(response.output_text)
+
+
+def generate_with_groq(payload: dict) -> dict:
+    settings = get_settings()
+    if not settings.groq_api_key:
+        return fallback_analysis(payload)
+
+    client = OpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
+    response = client.chat.completions.create(
+        model=settings.groq_model,
+        max_tokens=GROQ_ANALYSIS_MAX_TOKENS,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": GROQ_EVALUATION_INSTRUCTIONS,
+            },
+            {"role": "user", "content": build_groq_evaluation_input(payload)},
+        ],
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise ValueError("Groq response did not include JSON content")
+    return deep_merge_dict(fallback_analysis(payload), json.loads(content))
 
 
 ANTHROPIC_TOOL_NAME = "submit_evaluation"
@@ -1465,7 +1612,9 @@ def generate_with_anthropic(payload: dict) -> dict:
 
 def generate_analysis(payload: dict) -> dict:
     settings = get_settings()
-    provider: Literal["openai", "anthropic"] = settings.analysis_provider
+    provider: Literal["openai", "anthropic", "groq"] = settings.analysis_provider
+    if provider == "groq":
+        return normalize_generated_analysis(generate_with_groq(payload))
     if provider == "anthropic":
         return normalize_generated_analysis(generate_with_anthropic(payload))
     return normalize_generated_analysis(generate_with_openai(payload))

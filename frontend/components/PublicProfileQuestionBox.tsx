@@ -41,14 +41,14 @@ export function PublicProfileQuestionBox({ slug }: { slug: string }) {
     <section className="panel stack recruiter-question-panel">
       <div className="recruiter-question-head">
         <span className="status"><Sparkles size={14} /> Recruiter check</span>
-        <h2>Ask about role fit</h2>
-        <p className="muted">Ask whether this applicant is qualified for a role, seniority, or team need.</p>
+        <h2>Ask the profile</h2>
+        <p className="muted">Ask role-fit questions and get answers written on the developer's behalf from published evidence.</p>
       </div>
       <div className="recruiter-question-input">
         <textarea
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          placeholder="Is this applicant qualified for a backend new grad role?"
+          placeholder="Are you qualified for a backend new grad role?"
           rows={3}
         />
         <button className="btn" type="button" onClick={askQuestion} disabled={pending || !question.trim()}>
