@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "cipher",
+  title: "Cipher",
   description: "Verified developer profiles built from code, challenge data, and reviewed career history."
 };
 

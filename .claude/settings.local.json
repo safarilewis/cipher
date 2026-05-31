@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_analysis_v2.py -x -q)",
+      "Bash(python -m pytest -x -q)",
+      "Bash(python -m pytest tests/test_scoring.py::test_free_tier_refresh_blocks_before_14_days -x)",
+      "Bash(git stash *)",
+      "Bash(python -m pytest --deselect tests/test_scoring.py::test_free_tier_refresh_blocks_before_14_days -q)",
+      "Bash(python -m pytest tests/test_scoring.py::test_next_free_tier_refresh_date_is_14_days_after_sync)",
+      "Bash(python -m pytest -x -q --deselect tests/test_scoring.py::test_free_tier_refresh_blocks_before_14_days --deselect tests/test_scoring.py::test_next_free_tier_refresh_date_is_14_days_after_sync)",
+      "Bash(python -m pytest tests/test_github.py -x -q)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -m pytest tests/test_auth.py tests/test_profile_qa.py tests/test_leetcode.py tests/test_scoring.py -q)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/analysis.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+    ]
+  }
+}

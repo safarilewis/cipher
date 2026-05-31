@@ -119,7 +119,7 @@ export default function HomePage() {
       <div className="section-divider landing-spacer" />
       <section className="section reveal in" id="how">
         <div className="section-eyebrow">How it works</div>
-        <h2>From scattered proof<br /><span className="dim">to one reviewed profile.</span></h2>
+        <h2>From raw data<br /><span className="dim">to a queryable portfolio.</span></h2>
         <p className="section-desc">Connect your sources, add career sections, review the analysis, and publish when it is ready.</p>
         <div className="steps">
           <div className="step"><div className="step-num">01 - Connect</div><h3>Link GitHub and LeetCode</h3><p>Bring in repository evidence and problem-solving snapshots without asking anyone to take your resume at face value.</p></div>
@@ -167,7 +167,7 @@ export default function HomePage() {
       </section>
 
       <footer>
-        <div className="footer-left"><div className="footer-logo">cipher</div><div className="footer-copy">© 2026 cipher - cipher.so</div></div>
+        <div className="footer-left"><div className="footer-logo">Cipher</div><div className="footer-copy">© 2026 Cipher - cipher.so</div></div>
         <div className="footer-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href={githubRepoUrl} target="_blank" rel="noreferrer">GitHub</a></div>
       </footer>
     </>

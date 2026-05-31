@@ -5,7 +5,7 @@ export function PublicHeader() {
     <header className="topbar">
       <Link className="brand" href="/">
         <span className="brand-mark">c</span>
-        <span>cipher</span>
+        <span>Cipher</span>
       </Link>
       <nav className="nav">
         <Link href="/#how">How It Works</Link>
